@@ -1,4 +1,34 @@
-const SUPABASE_URL = "https://xzatmksefkhuenktumdm.supabase.co";
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Q-Output! | タブレット早押し＆AI記述クイズ</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+      background-color: #f1f5f9;
+      color: #0f172a;
+      overscroll-behavior: none;
+    }
+    canvas.draw-pad {
+      touch-action: none;
+      cursor: crosshair;
+      background-color: #ffffff;
+    }
+    @keyframes popIn {
+      0% { transform: scale(0.92); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .animate-pop { animation: popIn 0.2s ease-out forwards; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+<script>
+  const SUPABASE_URL = "https://xzatmksefkhuenktumdm.supabase.co";
   const SUPABASE_ANON_KEY = "sb_publishable_2S95MbDZyS3sU5FEte8y6g_4jcqqZ-3";
   let GEMINI_API_KEY = localStorage.getItem("q_output_gemini_key") || "";
 
@@ -7,6 +37,936 @@ const SUPABASE_URL = "https://xzatmksefkhuenktumdm.supabase.co";
     if (key !== null) {
       GEMINI_API_KEY = key.trim();
       localStorage.setItem("q_output_gemini_key", GEMINI_API_KEY);
-      alert("APIキーを保存しました！");
+      alert(GEMINI_API_KEY ? "APIキーを保存しました！" : "APIキーを削除しました。");
     }
   }
+</script>
+
+<!-- ヘッダー -->
+<header class="bg-indigo-700 text-white shadow-md sticky top-0 z-30">
+  <div class="max-w-5xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+    <div class="flex items-center gap-2">
+      <span class="bg-amber-400 text-indigo-950 font-black px-2.5 py-0.5 rounded-lg text-sm">早押し×AI採点</span>
+      <h1 class="font-extrabold text-xl tracking-tight">Q-Output!</h1>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+      <div class="bg-indigo-800/80 px-3 py-1.5 rounded-lg flex items-center gap-2">
+        <span class="text-indigo-200">ID:</span>
+        <span id="header-friend-code" class="font-mono font-bold text-amber-300 tracking-wider">------</span>
+        <button onclick="copyFriendCode()" class="bg-indigo-600 hover:bg-indigo-500 px-2 py-0.5 rounded text-xs font-bold">コピー</button>
+        <button onclick="setGeminiKey()" class="bg-amber-400 text-indigo-950 hover:bg-amber-300 px-2 py-0.5 rounded text-xs font-bold">AIキー設定</button>
+      </div>
+      <input id="nickname-input" type="text" maxlength="12" placeholder="ニックネーム"
+        onchange="updateNickname(this.value)"
+        class="bg-white text-slate-900 font-bold px-2.5 py-1 rounded-lg w-28 sm:w-36 focus:outline-none focus:ring-2 focus:ring-amber-400" />
+    </div>
+  </div>
+
+  <!-- ナビゲーションタブ -->
+  <nav class="bg-indigo-800 text-indigo-100">
+    <div class="max-w-5xl mx-auto px-4 flex gap-1">
+      <button onclick="switchTab('lobby')" id="tab-lobby" class="tab-btn px-4 py-2.5 font-bold text-sm border-b-4 border-amber-400 text-white">対戦ルーム</button>
+      <button onclick="switchTab('friends')" id="tab-friends" class="tab-btn px-4 py-2.5 font-bold text-sm border-b-4 border-transparent hover:text-white flex items-center gap-1.5">
+        フレンド <span id="friend-online-badge" class="hidden bg-emerald-500 text-white text-xs px-1.5 py-0.2 rounded-full">0</span>
+      </button>
+      <button onclick="switchTab('questions')" id="tab-questions" class="tab-btn px-4 py-2.5 font-bold text-sm border-b-4 border-transparent hover:text-white">問題を作る・一覧</button>
+    </div>
+  </nav>
+</header>
+
+<!-- リアルタイム招待通知バナー -->
+<div id="invite-banner" class="hidden fixed bottom-4 left-4 right-4 max-w-lg mx-auto bg-slate-900 text-white p-4 rounded-2xl shadow-2xl border-2 border-amber-400 z-50 animate-pop">
+  <div class="flex items-center justify-between gap-3">
+    <div>
+      <p class="text-xs text-amber-300 font-bold">ルーム招待が届いています！</p>
+      <p id="invite-text" class="font-bold text-sm sm:text-base mt-0.5"></p>
+    </div>
+    <div class="flex gap-2 shrink-0">
+      <button onclick="dismissInvite()" class="px-3 py-2 rounded-xl bg-slate-700 text-xs font-bold">閉じる</button>
+      <button onclick="acceptInvite()" class="px-4 py-2 rounded-xl bg-amber-400 text-slate-950 font-black text-sm shadow">ワンタップ入室</button>
+    </div>
+  </div>
+</div>
+
+<main class="flex-1 max-w-5xl w-full mx-auto p-4 space-y-6">
+
+  <!-- ==================== 1. 対戦ルーム画面 ==================== -->
+  <section id="view-lobby" class="space-y-6">
+
+    <!-- 未入室時のロビー入口 -->
+    <div id="room-entry-panel" class="grid md:grid-cols-2 gap-6">
+      <!-- ルーム作成 -->
+      <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+        <div class="flex items-center gap-2">
+          <span class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 font-black flex items-center justify-center">1</span>
+          <h2 class="text-lg font-extrabold">ルームを作成する（出題・ホスト）</h2>
+        </div>
+        <p class="text-sm text-slate-600">自動生成された4桁IDと4桁パスワードで対戦部屋を作成します。</p>
+        <div class="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border">
+          <div>
+            <label class="text-xs font-bold text-slate-500">ルームID（4桁）</label>
+            <input id="create-room-id" type="text" maxlength="4" inputmode="numeric"
+              class="w-full mt-1 font-mono text-2xl font-black text-center bg-white border rounded-lg py-1.5 text-indigo-700" />
+          </div>
+          <div>
+            <label class="text-xs font-bold text-slate-500">パスワード（4桁）</label>
+            <input id="create-room-pw" type="text" maxlength="4" inputmode="numeric"
+              class="w-full mt-1 font-mono text-2xl font-black text-center bg-white border rounded-lg py-1.5 text-indigo-700" />
+          </div>
+        </div>
+        <label class="flex items-center gap-2 text-sm font-bold text-slate-700 cursor-pointer">
+          <input id="host-also-plays" type="checkbox" checked class="w-4 h-4 accent-indigo-600" />
+          ホスト自身も早押し解答に参加する
+        </label>
+        <button onclick="createRoom()" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl shadow transition">
+          この番号でルームを作成
+        </button>
+      </div>
+
+      <!-- ルーム参加 -->
+      <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+        <div class="flex items-center gap-2">
+          <span class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 font-black flex items-center justify-center">2</span>
+          <h2 class="text-lg font-extrabold">ルームに入る（参加者）</h2>
+        </div>
+        <p class="text-sm text-slate-600">共有された4桁のIDとパスワードを入力するか、フレンド一覧からワンタップで入室できます。</p>
+        <div class="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border">
+          <div>
+            <label class="text-xs font-bold text-slate-500">ルームID（4桁）</label>
+            <input id="join-room-id" type="text" maxlength="4" inputmode="numeric" placeholder="0000"
+              class="w-full mt-1 font-mono text-2xl font-black text-center bg-white border rounded-lg py-1.5" />
+          </div>
+          <div>
+            <label class="text-xs font-bold text-slate-500">パスワード（4桁）</label>
+            <input id="join-room-pw" type="text" maxlength="4" inputmode="numeric" placeholder="0000"
+              class="w-full mt-1 font-mono text-2xl font-black text-center bg-white border rounded-lg py-1.5" />
+          </div>
+        </div>
+        <button onclick="joinRoom()" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow transition">
+          ルームに入室する
+        </button>
+      </div>
+    </div>
+
+    <!-- 入室中の対戦画面 -->
+    <div id="room-active-panel" class="hidden space-y-4">
+      <!-- ルーム情報バー -->
+      <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-4">
+          <div>
+            <span class="text-xs text-slate-500 font-bold block">ルームID / PASS</span>
+            <span id="active-room-code" class="font-mono text-xl font-black text-indigo-700">---- / ----</span>
+          </div>
+          <span id="room-status-badge" class="px-3 py-1 rounded-full text-xs font-extrabold bg-slate-100 text-slate-700">待機中</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="openInviteModal()" class="px-3 py-2 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs sm:text-sm rounded-xl">
+            + フレンドを招待
+          </button>
+          <button onclick="leaveRoom()" class="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs sm:text-sm rounded-xl">
+            退出
+          </button>
+        </div>
+      </div>
+
+      <!-- 参加者スコアボード -->
+      <div id="players-bar" class="grid grid-cols-2 sm:grid-cols-4 gap-2"></div>
+
+      <!-- ホスト専用：出題コントロール -->
+      <div id="host-controls" class="hidden bg-indigo-50 border border-indigo-200 p-4 rounded-2xl space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <span class="font-extrabold text-indigo-900 text-sm">ホスト進行パネル</span>
+          <div class="flex flex-wrap gap-2">
+            <select id="host-question-select" class="bg-white border border-indigo-300 rounded-xl px-3 py-2 text-sm font-bold max-w-xs"></select>
+            <button onclick="startQuestion()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-sm shadow">
+              出題スタート（早押し開始）
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 問題表示＆早押しエリア -->
+      <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-5">
+        <div id="question-stage" class="min-h-[140px] flex flex-col justify-center">
+          <p id="question-display-text" class="text-xl sm:text-2xl font-extrabold leading-relaxed text-slate-800">
+            ホストが出題を開始するのを待っています...
+          </p>
+          <img id="question-display-img" class="hidden mt-4 max-h-64 rounded-xl border object-contain mx-auto" />
+        </div>
+
+        <!-- 早押しボタン -->
+        <div id="buzzer-area" class="hidden pt-2">
+          <button id="buzzer-btn" onclick="pressBuzzer()"
+            class="w-full py-8 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-black text-3xl rounded-2xl shadow-lg shadow-rose-200 transition select-none">
+            早押し！
+          </button>
+        </div>
+
+        <!-- 解答権獲得バナー -->
+        <div id="winner-banner" class="hidden p-4 rounded-xl bg-amber-100 border-2 border-amber-400 text-center">
+          <p id="winner-text" class="text-lg font-black text-amber-950"></p>
+        </div>
+
+        <!-- タブレット手書き＆タイピング解答エリア -->
+        <div id="answer-input-area" class="hidden space-y-3 pt-2 border-t">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex gap-1 bg-slate-100 p-1 rounded-xl">
+              <button onclick="setAnswerMode('draw')" id="mode-draw-btn" class="px-3 py-1.5 rounded-lg text-xs font-extrabold bg-white shadow text-indigo-700">ペンで手書き</button>
+              <button onclick="setAnswerMode('type')" id="mode-type-btn" class="px-3 py-1.5 rounded-lg text-xs font-extrabold text-slate-600">タイピング入力</button>
+            </div>
+            <!-- ペンツール -->
+            <div id="pen-tools" class="flex items-center gap-2">
+              <button onclick="setPenColor('#0f172a')" class="w-6 h-6 rounded-full bg-slate-900 border-2 border-white shadow"></button>
+              <button onclick="setPenColor('#dc2626')" class="w-6 h-6 rounded-full bg-red-600 border-2 border-white shadow"></button>
+              <button onclick="setPenColor('#2563eb')" class="w-6 h-6 rounded-full bg-blue-600 border-2 border-white shadow"></button>
+              <button onclick="setPenColor('#ffffff', 18)" class="px-2 py-1 bg-slate-200 rounded text-xs font-bold">消しゴム</button>
+              <button onclick="clearCanvas()" class="px-2 py-1 bg-rose-100 text-rose-700 rounded text-xs font-bold">全消去</button>
+            </div>
+          </div>
+
+          <div id="draw-container" class="border-2 border-slate-300 rounded-xl overflow-hidden bg-white">
+            <canvas id="answer-canvas" class="draw-pad w-full h-56"></canvas>
+          </div>
+
+          <div id="type-container" class="hidden">
+            <textarea id="answer-textarea" rows="3" placeholder="ここに記述解答を入力してください..."
+              class="w-full p-3 border-2 border-slate-300 rounded-xl text-base font-bold focus:outline-none focus:border-indigo-500"></textarea>
+          </div>
+
+          <button id="submit-answer-btn" onclick="submitAnswer()"
+            class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl shadow text-lg">
+            この内容で解答を送信（AI採点へ）
+          </button>
+        </div>
+
+        <!-- AI採点結果表示エリア -->
+        <div id="grading-result-area" class="hidden p-5 rounded-2xl bg-slate-50 border-2 border-indigo-200 space-y-4">
+          <div class="flex items-center justify-between">
+            <span class="font-extrabold text-indigo-900">Gemini AI 記述採点結果</span>
+            <span id="ai-score-badge" class="text-2xl font-black px-4 py-1 rounded-xl bg-indigo-600 text-white">-- 点</span>
+          </div>
+          <div class="grid sm:grid-cols-2 gap-3 text-sm">
+            <div class="bg-white p-3 rounded-xl border">
+              <span class="text-xs font-bold text-slate-500 block mb-1">提出された解答</span>
+              <img id="submitted-img-preview" class="hidden max-h-32 border rounded mb-1" />
+              <p id="submitted-text-preview" class="font-bold text-slate-800"></p>
+            </div>
+            <div class="bg-white p-3 rounded-xl border space-y-2">
+              <div>
+                <span class="text-xs font-bold text-slate-500 block">必須キーワード判定</span>
+                <div id="keyword-badges" class="flex flex-wrap gap-1 mt-1"></div>
+              </div>
+              <div>
+                <span class="text-xs font-bold text-slate-500 block">的を射ているか・AI講評</span>
+                <p id="ai-feedback-text" class="text-slate-700 font-medium mt-0.5"></p>
+              </div>
+            </div>
+          </div>
+
+          <!-- ホスト採点確定コントロール -->
+          <div id="host-grade-confirm" class="hidden flex flex-wrap gap-2 pt-2 border-t">
+            <button onclick="confirmGrade(10)" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-sm">
+              正解としてポイント付与（+10pt）
+            </button>
+            <button onclick="confirmGrade(0)" class="flex-1 py-2.5 bg-slate-600 hover:bg-slate-700 text-white font-extrabold rounded-xl text-sm">
+              不正解（ポイントなし）
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 2. フレンド画面 ==================== -->
+  <section id="view-friends" class="hidden space-y-6">
+    <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+      <h2 class="text-lg font-extrabold">フレンドコードで追加</h2>
+      <p class="text-sm text-slate-600">相手の6桁フレンドコードを入力すると、相互にフレンド登録され、ルームへのワンタップ参加・招待ができるようになります。</p>
+      <div class="flex gap-2 max-w-md">
+        <input id="add-friend-code-input" type="text" maxlength="6" placeholder="例: A1B2C3"
+          class="flex-1 font-mono uppercase text-lg font-bold px-4 py-2.5 border rounded-xl" />
+        <button onclick="addFriendByCode()" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl">
+          追加する
+        </button>
+      </div>
+    </div>
+
+    <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+      <h2 class="text-lg font-extrabold">フレンド一覧（ワンタップ参加）</h2>
+      <div id="friends-list" class="divide-y">
+        <p class="text-sm text-slate-500 py-4">まだフレンドがいません。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 3. 問題作成・管理画面 ==================== -->
+  <section id="view-questions" class="hidden space-y-6">
+    <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+      <h2 class="text-lg font-extrabold">新しい問題を作る</h2>
+      <div class="space-y-3">
+        <div>
+          <label class="text-xs font-bold text-slate-600">問題文</label>
+          <textarea id="q-text" rows="2" placeholder="例：植物の葉で光合成が行われる細胞小器官を何というか。また、その働きを簡潔に説明せよ。"
+            class="w-full mt-1 p-3 border rounded-xl font-bold"></textarea>
+        </div>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-bold text-slate-600">模範解答</label>
+            <input id="q-answer" type="text" placeholder="例：葉緑体。光のエネルギーを使ってデンプンなどの養分をつくる。"
+              class="w-full mt-1 p-2.5 border rounded-xl font-bold" />
+          </div>
+          <div>
+            <label class="text-xs font-bold text-slate-600">AI採点の必須キーワード（カンマ区切り）</label>
+            <input id="q-keywords" type="text" placeholder="例：葉緑体, 光, デンプン"
+              class="w-full mt-1 p-2.5 border rounded-xl font-bold" />
+          </div>
+        </div>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-bold text-slate-600">AI採点基準メモ（的を射ているかの判断軸）</label>
+            <input id="q-criteria" type="text" placeholder="例：名称と、光エネルギーで有機物(デンプン)を合成する点が書けていれば高得点"
+              class="w-full mt-1 p-2.5 border rounded-xl" />
+          </div>
+          <div>
+            <label class="text-xs font-bold text-slate-600">問題画像・写真（任意）</label>
+            <input id="q-image" type="file" accept="image/*" onchange="handleImageUpload(event)"
+              class="w-full mt-1 text-sm file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:text-indigo-700 file:font-bold" />
+          </div>
+        </div>
+        <img id="q-image-preview" class="hidden max-h-40 rounded-xl border" />
+        <button onclick="saveQuestion()" class="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl shadow">
+          問題を保存する
+        </button>
+      </div>
+    </div>
+
+    <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-3">
+      <h2 class="text-lg font-extrabold">登録済みの問題リスト</h2>
+      <div id="question-list" class="space-y-3"></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- フレンド招待モーダル -->
+<div id="invite-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl max-w-md w-full p-6 space-y-4">
+    <div class="flex items-center justify-between">
+      <h3 class="font-extrabold text-lg">フレンドをルームに招待</h3>
+      <button onclick="closeInviteModal()" class="text-slate-400 hover:text-slate-600 font-bold text-xl">&times;</button>
+    </div>
+    <div id="invite-friend-list" class="divide-y max-h-64 overflow-y-auto"></div>
+  </div>
+</div>
+
+<script>
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let currentUser = null;
+  let myProfile = null;
+  let currentRoom = null;
+  let roomChannel = null;
+  let currentInvite = null;
+  let answerMode = 'draw';
+  let uploadedImageBase64 = null;
+  let readTimer = null;
+
+  const defaultQuestions = [
+    {
+      id: 'sample-1',
+      text: 'コイルの中の磁界が変化すると、コイルに電流が流れる現象を何というか。また、流れる電流の向きを逆にする方法を1つ答えよ。',
+      answer: '電磁誘導。磁石のN極とS極を逆にして動かす（または磁石を遠ざける）。',
+      keywords: ['電磁誘導', '極', '逆'],
+      criteria: '「電磁誘導」の名称と、磁界の変化の向きを逆にする操作が具体的に書かれていれば正解',
+      image: null
+    },
+    {
+      id: 'sample-2',
+      text: '「需要と供給のバランス」において、ある商品の価格が均衡価格よりも高くなったとき、市場ではどのような状態になり、価格はどう変化するか説明せよ。',
+      answer: '売りたい量（供給量）が買いたい量（需要量）を上回る超過供給（売れ残り）になり、価格は下がっていく。',
+      keywords: ['供給', '需要', '下がる'],
+      criteria: '供給量が需要量を上回る（売れ残る）ことと、それにより価格が下落する流れが説明できていれば高得点',
+      image: null
+    }
+  ];
+
+  let questions = JSON.parse(localStorage.getItem('q_output_questions') || 'null') || defaultQuestions;
+
+  function playBuzzerSound() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.setValueAtTime(1108.73, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.25, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.5);
+    } catch (e) {}
+  }
+
+  window.addEventListener('DOMContentLoaded', async () => {
+    generateRandomRoomInputs();
+    renderQuestions();
+    setupCanvas();
+
+    let { data: { session } } = await sb.auth.getSession();
+    if (!session) {
+      const res = await sb.auth.signInAnonymously();
+      session = res.data.session;
+    }
+    currentUser = session.user;
+
+    let { data: profile } = await sb.from('profiles').select('*').eq('user_id', currentUser.id).maybeSingle();
+    if (!profile) {
+      const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+      const defaultName = 'プレイヤー' + code.slice(0, 3);
+      const { data: created } = await sb.from('profiles').insert({
+        user_id: currentUser.id,
+        friend_code: code,
+        nickname: defaultName
+      }).select().single();
+      profile = created;
+    }
+    myProfile = profile;
+    document.getElementById('header-friend-code').textContent = myProfile.friend_code;
+    document.getElementById('nickname-input').value = myProfile.nickname;
+
+    loadFriends();
+    listenForInvites();
+  });
+
+  function generateRandomRoomInputs() {
+    document.getElementById('create-room-id').value = Math.floor(1000 + Math.random() * 9000);
+    document.getElementById('create-room-pw').value = Math.floor(1000 + Math.random() * 9000);
+  }
+
+  function switchTab(tab) {
+    ['lobby', 'friends', 'questions'].forEach(t => {
+      document.getElementById('view-' + t).classList.toggle('hidden', t !== tab);
+      const btn = document.getElementById('tab-' + t);
+      btn.classList.toggle('border-amber-400', t === tab);
+      btn.classList.toggle('text-white', t === tab);
+      btn.classList.toggle('border-transparent', t !== tab);
+    });
+    if (tab === 'friends') loadFriends();
+  }
+
+  async function updateNickname(val) {
+    const name = val.trim() || 'プレイヤー';
+    myProfile.nickname = name;
+    await sb.from('profiles').update({ nickname: name }).eq('user_id', currentUser.id);
+  }
+
+  function copyFriendCode() {
+    navigator.clipboard.writeText(myProfile.friend_code);
+    alert('フレンドコード「' + myProfile.friend_code + '」をコピーしました！');
+  }
+
+  // ==================== ルーム作成・参加 ====================
+  async function createRoom() {
+    const id = document.getElementById('create-room-id').value.trim();
+    const pw = document.getElementById('create-room-pw').value.trim();
+    if (!/^\d{4}$/.test(id) || !/^\d{4}$/.test(pw)) {
+      return alert('ルームIDとパスワードは4桁の数字で入力してください。');
+    }
+    await sb.from('rooms').upsert({
+      id, password: pw, host_id: currentUser.id, status: 'waiting', winner_id: null, winner_name: null
+    });
+
+    if (document.getElementById('host-also-plays').checked) {
+      await sb.from('room_players').upsert({
+        room_id: id, user_id: currentUser.id, nickname: myProfile.nickname, score: 0
+      });
+    }
+    enterRoomState(id, pw);
+  }
+
+  async function joinRoom(overrideId = null, overridePw = null) {
+    const id = overrideId || document.getElementById('join-room-id').value.trim();
+    const pw = overridePw || document.getElementById('join-room-pw').value.trim();
+    const { data: room } = await sb.from('rooms').select('*').eq('id', id).maybeSingle();
+    if (!room) return alert('指定されたルームIDが見つかりません。');
+    if (room.password !== pw) return alert('パスワードが一致しません。');
+
+    await sb.from('room_players').upsert({
+      room_id: id, user_id: currentUser.id, nickname: myProfile.nickname, score: 0
+    });
+    enterRoomState(id, pw);
+  }
+
+  async function enterRoomState(id, pw) {
+    await sb.from('profiles').update({
+      current_room_id: id, current_room_pw: pw, room_status: 'waiting'
+    }).eq('user_id', currentUser.id);
+
+    document.getElementById('room-entry-panel').classList.add('hidden');
+    document.getElementById('room-active-panel').classList.remove('hidden');
+    document.getElementById('active-room-code').textContent = `${id} / ${pw}`;
+    switchTab('lobby');
+
+    if (roomChannel) sb.removeChannel(roomChannel);
+    roomChannel = sb.channel('room-' + id)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${id}` }, () => syncRoom(id))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_players', filter: `room_id=eq.${id}` }, () => syncRoom(id))
+      .subscribe();
+
+    syncRoom(id);
+  }
+
+  async function leaveRoom() {
+    if (currentRoom) {
+      await sb.from('room_players').delete().eq('room_id', currentRoom.id).eq('user_id', currentUser.id);
+    }
+    await sb.from('profiles').update({
+      current_room_id: null, current_room_pw: null, room_status: 'idle'
+    }).eq('user_id', currentUser.id);
+    if (roomChannel) sb.removeChannel(roomChannel);
+    currentRoom = null;
+    document.getElementById('room-entry-panel').classList.remove('hidden');
+    document.getElementById('room-active-panel').classList.add('hidden');
+  }
+
+  async function syncRoom(id) {
+    const { data: room } = await sb.from('rooms').select('*').eq('id', id).maybeSingle();
+    if (!room) return;
+    const prevStatus = currentRoom?.status;
+    currentRoom = room;
+
+    const { data: players } = await sb.from('room_players').select('*').eq('room_id', id).order('score', { ascending: false });
+    const isHost = room.host_id === currentUser.id;
+
+    document.getElementById('players-bar').innerHTML = (players || []).map(p => `
+      <div class="bg-white p-3 rounded-xl border ${room.winner_id === p.user_id ? 'border-amber-400 ring-2 ring-amber-300' : 'border-slate-200'} flex items-center justify-between">
+        <span class="font-bold text-sm truncate">${p.nickname}</span>
+        <span class="font-mono font-black text-indigo-700">${p.score} pt</span>
+      </div>
+    `).join('');
+
+    document.getElementById('host-controls').classList.toggle('hidden', !isHost);
+    const statusMap = { waiting: '待機中', reading: '早押し受付中！', answering: '解答入力中', grading: 'AI採点完了' };
+    document.getElementById('room-status-badge').textContent = statusMap[room.status] || room.status;
+
+    const qTextEl = document.getElementById('question-display-text');
+    const qImgEl = document.getElementById('question-display-img');
+    if (room.question) {
+      if (room.question.image) {
+        qImgEl.src = room.question.image;
+        qImgEl.classList.remove('hidden');
+      } else {
+        qImgEl.classList.add('hidden');
+      }
+      if (room.status === 'reading' && prevStatus !== 'reading') {
+        animateQuestionText(room.question.text);
+      } else if (room.status !== 'reading') {
+        clearInterval(readTimer);
+        qTextEl.textContent = room.question.text;
+      }
+    }
+
+    const amIPlayer = (players || []).some(p => p.user_id === currentUser.id);
+    document.getElementById('buzzer-area').classList.toggle('hidden', !(room.status === 'reading' && amIPlayer));
+
+    const isWinner = room.winner_id === currentUser.id;
+    document.getElementById('winner-banner').classList.toggle('hidden', !room.winner_id);
+    if (room.winner_id) {
+      document.getElementById('winner-text').textContent = isWinner
+        ? 'あなたが早押し獲得！タブレットに解答を書いて送信してください'
+        : `${room.winner_name} さんが早押し獲得！解答中...`;
+    }
+
+    document.getElementById('answer-input-area').classList.toggle('hidden', !(room.status === 'answering' && isWinner));
+    if (room.status === 'answering' && isWinner && prevStatus !== 'answering') {
+      clearCanvas();
+      document.getElementById('answer-textarea').value = '';
+    }
+
+    const gradeArea = document.getElementById('grading-result-area');
+    if (room.status === 'grading') {
+      const winnerPlayer = (players || []).find(p => p.user_id === room.winner_id);
+      if (winnerPlayer && winnerPlayer.grade_result) {
+        gradeArea.classList.remove('hidden');
+        const g = winnerPlayer.grade_result;
+        document.getElementById('ai-score-badge').textContent = `${g.score} 点`;
+        document.getElementById('submitted-text-preview').textContent = winnerPlayer.answer_text || '（手書き解答）';
+        const imgPrev = document.getElementById('submitted-img-preview');
+        if (winnerPlayer.answer_image) {
+          imgPrev.src = winnerPlayer.answer_image;
+          imgPrev.classList.remove('hidden');
+        } else {
+          imgPrev.classList.add('hidden');
+        }
+        document.getElementById('keyword-badges').innerHTML = (g.keywords || []).map(k =>
+          `<span class="px-2 py-0.5 rounded text-xs font-bold ${k.used ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}">${k.used ? '✓' : '×'} ${k.word}</span>`
+        ).join('');
+        document.getElementById('ai-feedback-text').textContent = g.feedback;
+        document.getElementById('host-grade-confirm').classList.toggle('hidden', !isHost);
+      }
+    } else {
+      gradeArea.classList.add('hidden');
+    }
+  }
+
+  function animateQuestionText(fullText) {
+    clearInterval(readTimer);
+    const el = document.getElementById('question-display-text');
+    let idx = 0;
+    el.textContent = '';
+    readTimer = setInterval(() => {
+      idx++;
+      el.textContent = fullText.slice(0, idx);
+      if (idx >= fullText.length) clearInterval(readTimer);
+    }, 55);
+  }
+
+  async function startQuestion() {
+    const qId = document.getElementById('host-question-select').value;
+    const q = questions.find(item => item.id === qId) || questions[0];
+    await sb.from('rooms').update({
+      status: 'reading',
+      question: q,
+      winner_id: null,
+      winner_name: null
+    }).eq('id', currentRoom.id);
+  }
+
+  async function pressBuzzer() {
+    playBuzzerSound();
+    await sb.from('rooms')
+      .update({ status: 'answering', winner_id: currentUser.id, winner_name: myProfile.nickname })
+      .eq('id', currentRoom.id)
+      .eq('status', 'reading');
+  }
+
+  // ==================== 手書きキャンバス＆Gemini AI採点 ====================
+  let isDrawing = false;
+  let penColor = '#0f172a';
+  let penWidth = 4;
+
+  function setupCanvas() {
+    const canvas = document.getElementById('answer-canvas');
+    const ctx = canvas.getContext('2d');
+    const resize = () => {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width > 0) {
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+      }
+    };
+    window.addEventListener('resize', resize);
+    setTimeout(resize, 300);
+
+    const getPos = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    };
+
+    canvas.addEventListener('pointerdown', (e) => {
+      if (canvas.width === 0) resize();
+      isDrawing = true;
+      canvas.setPointerCapture(e.pointerId);
+      const { x, y } = getPos(e);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!isDrawing) return;
+      const { x, y } = getPos(e);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = penColor;
+      ctx.lineWidth = penWidth;
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    });
+    canvas.addEventListener('pointerup', () => { isDrawing = false; });
+  }
+
+  function setPenColor(color, width = 4) { penColor = color; penWidth = width; }
+  function clearCanvas() {
+    const c = document.getElementById('answer-canvas');
+    c.getContext('2d').clearRect(0, 0, c.width, c.height);
+  }
+
+  function setAnswerMode(mode) {
+    answerMode = mode;
+    document.getElementById('draw-container').classList.toggle('hidden', mode !== 'draw');
+    document.getElementById('pen-tools').classList.toggle('hidden', mode !== 'draw');
+    document.getElementById('type-container').classList.toggle('hidden', mode !== 'type');
+    document.getElementById('mode-draw-btn').classList.toggle('bg-white', mode === 'draw');
+    document.getElementById('mode-type-btn').classList.toggle('bg-white', mode === 'type');
+  }
+
+  function getWhiteBgCanvasDataUrl() {
+    const src = document.getElementById('answer-canvas');
+    const tmp = document.createElement('canvas');
+    tmp.width = src.width || 600;
+    tmp.height = src.height || 220;
+    const tctx = tmp.getContext('2d');
+    tctx.fillStyle = '#ffffff';
+    tctx.fillRect(0, 0, tmp.width, tmp.height);
+    tctx.drawImage(src, 0, 0);
+    return tmp.toDataURL('image/png');
+  }
+
+  async function submitAnswer() {
+    if (!GEMINI_API_KEY) {
+      setGeminiKey();
+      if (!GEMINI_API_KEY) return alert('AI採点を行うには右上の「AIキー設定」からGemini APIキーを登録してください。');
+    }
+
+    const btn = document.getElementById('submit-answer-btn');
+    btn.disabled = true;
+    btn.textContent = 'AIが解答を解析・採点中...';
+
+    const textAns = answerMode === 'type' ? document.getElementById('answer-textarea').value.trim() : '';
+    const imgDataUrl = answerMode === 'draw' ? getWhiteBgCanvasDataUrl() : null;
+    const q = currentRoom.question;
+
+    const gradeResult = await gradeWithGemini(q, textAns, imgDataUrl);
+
+    await sb.from('room_players').update({
+      answer_text: textAns,
+      answer_image: imgDataUrl,
+      grade_result: gradeResult
+    }).eq('room_id', currentRoom.id).eq('user_id', currentUser.id);
+
+    await sb.from('rooms').update({ status: 'grading' }).eq('id', currentRoom.id);
+
+    btn.disabled = false;
+    btn.textContent = 'この内容で解答を送信（AI採点へ）';
+  }
+
+  async function gradeWithGemini(question, textAns, imgDataUrl) {
+    const prompt = `あなたは記述式クイズの厳密かつ丁寧な採点AIです。
+以下の問題に対して、プレイヤーの解答（テキストまたは手書き画像）を採点してください。
+
+【問題文】${question.text}
+【模範解答】${question.answer}
+【必須キーワード】${(question.keywords || []).join(', ')}
+【採点基準】${question.criteria || '質問の意図に対して的を射た説明ができているか'}
+【テキスト解答】${textAns || '（手書き画像を参照して読み取ってください）'}
+
+以下のJSON形式のみで出力してください:
+{
+  "score": 0から100の整数,
+  "keywords": [{"word": "キーワード", "used": trueまたはfalse}],
+  "feedback": "読み取った内容への言及と、的を射ているかの簡潔な講評（80文字以内）"
+}`;
+
+    const parts = [{ text: prompt }];
+    if (imgDataUrl) {
+      parts.push({
+        inlineData: { mimeType: 'image/png', data: imgDataUrl.split(',')[1] }
+      });
+    }
+
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: { responseMimeType: 'application/json' }
+        })
+      });
+      const data = await res.json();
+      const raw = data.candidates[0].content.parts[0].text;
+      return JSON.parse(raw);
+    } catch (e) {
+      return {
+        score: 0,
+        keywords: (question.keywords || []).map(w => ({ word: w, used: false })),
+        feedback: 'AI採点の通信エラーが発生しました。右上の「AIキー設定」を確認してください。'
+      };
+    }
+  }
+
+  async function confirmGrade(points) {
+    if (points > 0 && currentRoom.winner_id) {
+      const { data: p } = await sb.from('room_players').select('score')
+        .eq('room_id', currentRoom.id).eq('user_id', currentRoom.winner_id).single();
+      await sb.from('room_players').update({ score: (p?.score || 0) + points })
+        .eq('room_id', currentRoom.id).eq('user_id', currentRoom.winner_id);
+    }
+    await sb.from('rooms').update({ status: 'waiting', winner_id: null, winner_name: null }).eq('id', currentRoom.id);
+  }
+
+  // ==================== フレンド＆ワンタップ招待 ====================
+  async function addFriendByCode() {
+    const code = document.getElementById('add-friend-code-input').value.trim().toUpperCase();
+    if (!code || code === myProfile.friend_code) return alert('有効な相手のフレンドコードを入力してください。');
+
+    const { data: target } = await sb.from('profiles').select('*').eq('friend_code', code).maybeSingle();
+    if (!target) return alert('そのフレンドコードのユーザーが見つかりません。');
+
+    await sb.from('friends').upsert([
+      { user_id: currentUser.id, friend_id: target.user_id },
+      { user_id: target.user_id, friend_id: currentUser.id }
+    ]);
+    document.getElementById('add-friend-code-input').value = '';
+    alert(`${target.nickname} さんをフレンドに追加しました！`);
+    loadFriends();
+  }
+
+  async function loadFriends() {
+    if (!currentUser) return;
+    const { data: rels } = await sb.from('friends').select('friend_id').eq('user_id', currentUser.id);
+    const ids = (rels || []).map(r => r.friend_id);
+    const listEl = document.getElementById('friends-list');
+    if (ids.length === 0) {
+      listEl.innerHTML = '<p class="text-sm text-slate-500 py-4">まだフレンドがいません。</p>';
+      return;
+    }
+    const { data: friends } = await sb.from('profiles').select('*').in('user_id', ids);
+    const inRoomCount = (friends || []).filter(f => f.current_room_id).length;
+    const badge = document.getElementById('friend-online-badge');
+    badge.textContent = inRoomCount;
+    badge.classList.toggle('hidden', inRoomCount === 0);
+
+    listEl.innerHTML = (friends || []).map(f => `
+      <div class="py-3 flex items-center justify-between gap-2">
+        <div>
+          <p class="font-extrabold text-slate-800">${f.nickname} <span class="text-xs font-mono text-slate-400">#${f.friend_code}</span></p>
+          <p class="text-xs font-bold ${f.current_room_id ? 'text-emerald-600' : 'text-slate-400'}">
+            ${f.current_room_id ? `ルーム #${f.current_room_id} に参加中` : 'ロビー待機中'}
+          </p>
+        </div>
+        ${f.current_room_id
+          ? `<button onclick="joinRoom('${f.current_room_id}', '${f.current_room_pw}')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow">ワンタップ参加</button>`
+          : `<span class="text-xs text-slate-400 font-bold">入室待ち</span>`
+        }
+      </div>
+    `).join('');
+  }
+
+  async function openInviteModal() {
+    const { data: rels } = await sb.from('friends').select('friend_id').eq('user_id', currentUser.id);
+    const ids = (rels || []).map(r => r.friend_id);
+    const container = document.getElementById('invite-friend-list');
+    if (ids.length === 0) {
+      container.innerHTML = '<p class="text-sm text-slate-500 py-4">招待できるフレンドがいません。「フレンド」タブから追加してください。</p>';
+    } else {
+      const { data: friends } = await sb.from('profiles').select('*').in('user_id', ids);
+      container.innerHTML = (friends || []).map(f => `
+        <div class="py-3 flex items-center justify-between">
+          <span class="font-bold">${f.nickname}</span>
+          <button onclick="sendInvite('${f.user_id}', '${f.nickname}')" class="px-3 py-1.5 bg-indigo-600 text-white font-bold text-xs rounded-lg">招待を送る</button>
+        </div>
+      `).join('');
+    }
+    document.getElementById('invite-modal').classList.remove('hidden');
+  }
+
+  function closeInviteModal() { document.getElementById('invite-modal').classList.add('hidden'); }
+
+  async function sendInvite(toUserId, toName) {
+    await sb.from('room_invites').insert({
+      from_user_id: currentUser.id,
+      from_nickname: myProfile.nickname,
+      to_user_id: toUserId,
+      room_id: currentRoom.id,
+      password: currentRoom.password
+    });
+    closeInviteModal();
+    alert(`${toName} さんにルーム招待を送りました！`);
+  }
+
+  function listenForInvites() {
+    sb.channel('invites-' + currentUser.id)
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'room_invites', filter: `to_user_id=eq.${currentUser.id}`
+      }, (payload) => {
+        currentInvite = payload.new;
+        document.getElementById('invite-text').textContent = `${currentInvite.from_nickname} さんからルーム #${currentInvite.room_id} への招待！`;
+        document.getElementById('invite-banner').classList.remove('hidden');
+      })
+      .subscribe();
+  }
+
+  function dismissInvite() { document.getElementById('invite-banner').classList.add('hidden'); }
+  function acceptInvite() {
+    if (!currentInvite) return;
+    dismissInvite();
+    joinRoom(currentInvite.room_id, currentInvite.password);
+  }
+
+  // ==================== 問題作成・保存 ====================
+  function handleImageUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxW = 640;
+        const scale = Math.min(1, maxW / img.width);
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        uploadedImageBase64 = canvas.toDataURL('image/jpeg', 0.75);
+        const prev = document.getElementById('q-image-preview');
+        prev.src = uploadedImageBase64;
+        prev.classList.remove('hidden');
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function saveQuestion() {
+    const text = document.getElementById('q-text').value.trim();
+    const answer = document.getElementById('q-answer').value.trim();
+    if (!text || !answer) return alert('問題文と模範解答は必須です。');
+    const keywords = document.getElementById('q-keywords').value.split(/[,、]/).map(s => s.trim()).filter(Boolean);
+    const criteria = document.getElementById('q-criteria').value.trim();
+
+    questions.unshift({
+      id: 'q-' + Date.now(),
+      text, answer, keywords, criteria,
+      image: uploadedImageBase64
+    });
+    localStorage.setItem('q_output_questions', JSON.stringify(questions));
+
+    document.getElementById('q-text').value = '';
+    document.getElementById('q-answer').value = '';
+    document.getElementById('q-keywords').value = '';
+    document.getElementById('q-criteria').value = '';
+    document.getElementById('q-image').value = '';
+    document.getElementById('q-image-preview').classList.add('hidden');
+    uploadedImageBase64 = null;
+
+    renderQuestions();
+    alert('問題を保存しました！対戦ルームのホストパネルから出題できます。');
+  }
+
+  function renderQuestions() {
+    const selectEl = document.getElementById('host-question-select');
+    selectEl.innerHTML = questions.map((q, i) => `<option value="${q.id}">Q${i + 1}. ${q.text.slice(0, 24)}...</option>`).join('');
+
+    document.getElementById('question-list').innerHTML = questions.map((q, i) => `
+      <div class="p-4 rounded-xl border bg-slate-50 space-y-1">
+        <div class="flex justify-between items-start gap-2">
+          <p class="font-extrabold text-slate-800">Q${i + 1}. ${q.text}</p>
+          <button onclick="deleteQuestion('${q.id}')" class="text-xs text-rose-600 font-bold shrink-0">削除</button>
+        </div>
+        <p class="text-xs text-slate-600"><span class="font-bold">模範解答:</span> ${q.answer}</p>
+        <p class="text-xs text-indigo-700"><span class="font-bold">必須語句:</span> ${(q.keywords || []).join(' / ') || 'なし'}</p>
+      </div>
+    `).join('');
+  }
+
+  function deleteQuestion(id) {
+    questions = questions.filter(q => q.id !== id);
+    localStorage.setItem('q_output_questions', JSON.stringify(questions));
+    renderQuestions();
+  }
+</script>
+</body>
+</html>
