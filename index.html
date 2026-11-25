@@ -1,0 +1,3111 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Q-Output! AI採点×早押しアウトプットクイズ</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter & Noto Sans JP -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    body {
+      font-family: 'Inter', 'Noto Sans JP', sans-serif;
+      background-color: #f1f5f9;
+      color: #0f172a;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior-y: none;
+    }
+
+    /* 手書きキャンバス用のタッチ制御（スクロール・ズーム防止） */
+    .drawing-canvas {
+      touch-action: none;
+      cursor: crosshair;
+      background-color: #ffffff;
+      background-image:
+        linear-gradient(to right, #f1f5f9 1px, transparent 1px),
+        linear-gradient(to bottom, #f1f5f9 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+
+    /* 早押しボタンの立体感・パルスアニメーション */
+    .buzzer-btn {
+      background: linear-gradient(145deg, #ff4b2b, #ff416c);
+      box-shadow: 0 12px 28px -5px rgba(255, 65, 108, 0.55), 0 7px 0 #b91c1c;
+      transition: transform 0.08s ease, box-shadow 0.08s ease;
+    }
+    .buzzer-btn:active:not(:disabled) {
+      transform: translateY(6px);
+      box-shadow: 0 4px 12px -2px rgba(255, 65, 108, 0.55), 0 1px 0 #b91c1c;
+    }
+    .buzzer-btn:disabled {
+      background: linear-gradient(145deg, #94a3b8, #64748b);
+      box-shadow: 0 6px 0 #475569;
+      cursor: not-allowed;
+      opacity: 0.75;
+    }
+    .buzzer-pulse {
+      animation: pulse-ring 2s infinite;
+    }
+    @keyframes pulse-ring {
+      0% { box-shadow: 0 0 0 0 rgba(255, 65, 108, 0.6), 0 7px 0 #b91c1c; }
+      70% { box-shadow: 0 0 0 20px rgba(255, 65, 108, 0), 0 7px 0 #b91c1c; }
+      100% { box-shadow: 0 0 0 0 rgba(255, 65, 108, 0), 0 7px 0 #b91c1c; }
+    }
+
+    /* 招待バナーのスライドイン */
+    @keyframes slideDown {
+      from { transform: translateY(-100%); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .animate-slide-down {
+      animation: slideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    /* カスタムスクロールバー */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col select-none">
+
+  <!-- リアルタイム・ルーム招待フローティング通知バナー -->
+  <div id="invite-banner-container" class="fixed top-2 left-1/2 -translate-x-1/2 z-50 w-[95%] max-w-xl space-y-2 pointer-events-none">
+    <!-- JSで動的生成 -->
+  </div>
+
+  <!-- ヘッダーナビゲーション -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+    <div class="max-w-6xl mx-auto px-3 sm:px-5 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
+      <!-- ロゴ -->
+      <div class="flex items-center gap-2.5">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-200">
+          <i class="fa-solid fa-bolt text-xl"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-1.5">
+            <h1 class="text-lg sm:text-xl font-black tracking-tight text-slate-900 leading-none">Q-Output!</h1>
+            <span class="text-[10px] font-extrabold bg-indigo-50 text-indigo-600 border border-indigo-200 px-1.5 py-0.5 rounded-md">AI採点</span>
+          </div>
+          <p class="text-[11px] text-slate-500 font-medium mt-0.5">書いて答える早押し対戦クイズ</p>
+        </div>
+      </div>
+
+      <!-- メイン4タブナビゲーション -->
+      <nav class="flex bg-slate-100 p-1 rounded-2xl w-full lg:w-auto justify-between gap-1 order-3 lg:order-2">
+        <button onclick="switchTab('play')" id="nav-play" class="flex-1 lg:flex-initial px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition-all bg-blue-600 text-white shadow-xs">
+          <i class="fa-solid fa-gamepad"></i>
+          <span>ホーム / 対戦</span>
+        </button>
+        <button onclick="switchTab('friends')" id="nav-friends" class="flex-1 lg:flex-initial px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition-all text-slate-600 hover:text-slate-900 relative">
+          <i class="fa-solid fa-user-group"></i>
+          <span>フレンド</span>
+          <span id="badge-friends" class="hidden bg-rose-500 text-white text-[11px] font-black px-1.5 py-0.2 rounded-full">0</span>
+        </button>
+        <button onclick="switchTab('create')" id="nav-create" class="flex-1 lg:flex-initial px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition-all text-slate-600 hover:text-slate-900">
+          <i class="fa-solid fa-pen-to-square"></i>
+          <span>問題を作る</span>
+        </button>
+        <button onclick="switchTab('list')" id="nav-list" class="flex-1 lg:flex-initial px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition-all text-slate-600 hover:text-slate-900">
+          <i class="fa-solid fa-layer-group"></i>
+          <span>問題一覧</span>
+          <span id="badge-count" class="bg-slate-200 text-slate-700 text-[11px] font-bold px-1.5 py-0.2 rounded-full">0</span>
+        </button>
+      </nav>
+
+      <!-- 右端：自分のフレンドコード表示 & 音ON/OFF -->
+      <div class="flex items-center gap-2 order-2 lg:order-3">
+        <button onclick="copyMyFriendCode()" class="flex items-center gap-1.5 bg-slate-50 hover:bg-blue-50 border border-slate-200 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 transition" title="タップしてフレンドコードをコピー">
+          <i class="fa-solid fa-id-badge text-blue-600"></i>
+          <span id="header-friend-code" class="font-mono tracking-wider text-slate-900">------</span>
+          <i class="fa-regular fa-copy text-slate-400"></i>
+        </button>
+        <button onclick="toggleSound()" id="btn-sound" class="flex items-center justify-center w-9 h-9 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition" title="効果音の切替">
+          <i id="sound-icon" class="fa-solid fa-volume-high text-blue-600"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- メインコンテンツエリア -->
+  <main class="flex-1 max-w-6xl w-full mx-auto p-3 sm:p-6 flex flex-col">
+
+    <!-- =====================================================================
+         1. ホーム / 対戦タブ (PLAY & MULTIPLAYER ROOM VIEW)
+    ====================================================================== -->
+    <section id="view-play" class="flex-1 flex flex-col">
+
+      <!-- 1-A. ロビー選択（ホーム画面） -->
+      <div id="play-home-screen" class="flex-1 flex flex-col gap-5">
+
+        <!-- プレイヤープロフィールバー -->
+        <div class="bg-white rounded-3xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div class="flex items-center gap-3.5">
+            <div class="w-12 h-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center text-xl font-black shrink-0">
+              <i class="fa-solid fa-user-astronaut"></i>
+            </div>
+            <div class="flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <label for="profile-nickname-input" class="text-xs font-bold text-slate-400">プレイヤー名:</label>
+                <input type="text" id="profile-nickname-input" maxlength="14" placeholder="ニックネームを入力" onchange="updateNickname(this.value)" class="font-extrabold text-base sm:text-lg text-slate-900 bg-slate-50 border border-slate-200 focus:border-blue-500 focus:bg-white rounded-xl px-3 py-1 outline-none transition w-44 sm:w-56">
+              </div>
+              <div class="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                <span>あなたのフレンドコード: <strong id="home-friend-code" class="font-mono text-blue-600 text-sm tracking-wider">------</strong></span>
+                <button onclick="copyMyFriendCode()" class="text-blue-600 hover:underline font-bold">
+                  <i class="fa-regular fa-copy"></i> コピー
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- フレンドショートカット -->
+          <button onclick="switchTab('friends')" class="px-4 py-3 rounded-2xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-sm flex items-center justify-center gap-2 transition shrink-0">
+            <i class="fa-solid fa-user-plus"></i>
+            <span>フレンド一覧・招待確認</span>
+            <span id="home-friend-online-pill" class="bg-indigo-600 text-white text-xs px-2 py-0.5 rounded-full">0人</span>
+          </button>
+        </div>
+
+        <!-- 対戦・プレイモード選択カード群 -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 flex-1">
+
+          <!-- カード1：ルームを作成する（ホスト） -->
+          <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs flex flex-col justify-between">
+            <div>
+              <div class="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center text-2xl mb-4 shadow-md shadow-blue-200">
+                <i class="fa-solid fa-crown"></i>
+              </div>
+              <h2 class="text-xl font-black text-slate-900 mb-1">ルームを作成する</h2>
+              <p class="text-xs text-slate-500 leading-relaxed mb-5">
+                4桁ID＆パスワードの部屋を作成します。フレンドはコード入力なしでワンタップ参加できます！
+              </p>
+
+              <div class="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-200/80 mb-5">
+                <div>
+                  <label class="block text-xs font-bold text-slate-600 mb-1">出題カテゴリー</label>
+                  <select id="host-category-select" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="ALL">すべての問題</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-bold text-slate-600 mb-1">ルームパスワード（4桁数字）</label>
+                  <div class="flex gap-2">
+                    <input type="text" id="host-custom-password" maxlength="4" pattern="\d{4}" inputmode="numeric" placeholder="自動生成" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-center font-mono font-black text-lg tracking-widest text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button type="button" onclick="randomizeHostPasswordInput()" class="px-3 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold shrink-0" title="ランダム生成">
+                      <i class="fa-solid fa-dice"></i>
+                    </button>
+                  </div>
+                </div>
+
+                <label class="flex items-center gap-2.5 pt-1 cursor-pointer">
+                  <input type="checkbox" id="host-participate-check" checked class="w-5 h-5 rounded-md text-blue-600 focus:ring-blue-500">
+                  <span class="text-xs font-bold text-slate-700">ホスト自身も解答者として早押しに参加する</span>
+                </label>
+              </div>
+            </div>
+
+            <button onclick="createRoom()" class="w-full py-4 px-5 rounded-2xl bg-blue-600 hover:bg-blue-700 active:scale-98 text-white font-extrabold text-base shadow-md shadow-blue-200 transition flex items-center justify-center gap-2">
+              <i class="fa-solid fa-door-open"></i>
+              <span>ルームを開設する</span>
+            </button>
+          </div>
+
+          <!-- カード2：ルームに入る（ゲスト / フレンドワンタップ） -->
+          <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs flex flex-col justify-between">
+            <div>
+              <div class="w-12 h-12 rounded-2xl bg-emerald-500 text-white flex items-center justify-center text-2xl mb-4 shadow-md shadow-emerald-200">
+                <i class="fa-solid fa-right-to-bracket"></i>
+              </div>
+              <h2 class="text-xl font-black text-slate-900 mb-1">ルームに入る</h2>
+              <p class="text-xs text-slate-500 leading-relaxed mb-4">
+                フレンドが作成中のルームへワンタップで入室するか、4桁ID・パスワードで参加します。
+              </p>
+
+              <!-- 募集中のフレンドルーム一覧（ワンタップ参加ショートカット） -->
+              <div class="mb-4">
+                <div class="flex items-center justify-between mb-1.5">
+                  <span class="text-xs font-extrabold text-emerald-700 flex items-center gap-1">
+                    <i class="fa-solid fa-bolt"></i> 参加可能なフレンドの部屋
+                  </span>
+                </div>
+                <div id="home-active-friends-rooms" class="space-y-2 max-h-36 overflow-y-auto">
+                  <div class="text-xs text-slate-400 bg-slate-50 rounded-xl p-3 text-center border border-dashed border-slate-200">
+                    現在ルームを開いているフレンドはいません
+                  </div>
+                </div>
+              </div>
+
+              <!-- 4桁ID & パスワード手動入力 -->
+              <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 mb-4">
+                <p class="text-[11px] font-bold text-slate-500 mb-2">ID・パスワードで入室（フレンド以外とも対戦可能）</p>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="block text-[10px] font-bold text-slate-500 mb-0.5">ルームID (4桁)</label>
+                    <input type="text" id="join-room-id" maxlength="4" inputmode="numeric" placeholder="1234" class="w-full bg-white border border-slate-300 rounded-xl px-2 py-2 text-center font-mono font-black text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                  </div>
+                  <div>
+                    <label class="block text-[10px] font-bold text-slate-500 mb-0.5">パスワード (4桁)</label>
+                    <input type="text" id="join-room-pass" maxlength="4" inputmode="numeric" placeholder="0000" class="w-full bg-white border border-slate-300 rounded-xl px-2 py-2 text-center font-mono font-black text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button onclick="joinRoomByCredentials()" class="w-full py-4 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-extrabold text-base shadow-md shadow-emerald-200 transition flex items-center justify-center gap-2">
+              <i class="fa-solid fa-arrow-right-to-bracket"></i>
+              <span>ID・パスで入室する</span>
+            </button>
+          </div>
+
+          <!-- カード3：ソロAI特訓モード -->
+          <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs flex flex-col justify-between">
+            <div>
+              <div class="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center text-2xl mb-4 shadow-md shadow-amber-200">
+                <i class="fa-solid fa-robot"></i>
+              </div>
+              <h2 class="text-xl font-black text-slate-900 mb-1">1人でAI採点特訓</h2>
+              <p class="text-xs text-slate-500 leading-relaxed mb-5">
+                待合室なしで今すぐスタート！手書きやタイピングの記述解答をGemini AIがリアルタイムで採点・添削します。
+              </p>
+
+              <div class="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-200/80 mb-5">
+                <div>
+                  <label class="block text-xs font-bold text-slate-600 mb-1">カテゴリー選択</label>
+                  <select id="solo-category-select" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <option value="ALL">すべての問題</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-bold text-slate-600 mb-1">問題文の表示方式</label>
+                  <select id="solo-reveal-select" class="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    <option value="typewriter">1文字ずつ表示（早押し本番形式）</option>
+                    <option value="instant">一気表示（じっくり記述形式）</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <button onclick="startSoloPractice()" class="w-full py-4 px-5 rounded-2xl bg-amber-500 hover:bg-amber-600 active:scale-98 text-white font-extrabold text-base shadow-md shadow-amber-200 transition flex items-center justify-center gap-2">
+              <i class="fa-solid fa-play"></i>
+              <span>1人でスタートする</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 1-B. ルーム待機ロビー画面 (ROOM WAITING LOBBY) -->
+      <div id="play-lobby-screen" class="hidden flex-1 flex flex-col gap-5">
+        <!-- ルーム情報ヘッダー -->
+        <div class="bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-3xl p-5 sm:p-6 shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-2 mb-1">
+              <span class="bg-emerald-500 text-white text-xs font-black px-2.5 py-0.5 rounded-full animate-pulse">待機中</span>
+              <span class="text-xs text-slate-300 font-bold">フレンドはID入力なしでワンタップ参加できます</span>
+            </div>
+            <div class="flex flex-wrap items-center gap-4 mt-2">
+              <div class="bg-white/10 rounded-2xl px-4 py-2 border border-white/15">
+                <span class="text-[11px] text-slate-300 block">ルームID</span>
+                <span id="lobby-room-id" class="font-mono text-2xl sm:text-3xl font-black tracking-widest text-amber-300">----</span>
+              </div>
+              <div class="bg-white/10 rounded-2xl px-4 py-2 border border-white/15">
+                <span class="text-[11px] text-slate-300 block">パスワード</span>
+                <span id="lobby-room-pass" class="font-mono text-2xl sm:text-3xl font-black tracking-widest text-emerald-300">----</span>
+              </div>
+              <button onclick="copyRoomCredentials()" class="px-4 py-3 rounded-2xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold flex items-center gap-2 transition">
+                <i class="fa-regular fa-copy"></i>
+                <span>IDとパスをコピー</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <button onclick="leaveCurrentRoom()" class="px-4 py-3 rounded-2xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 border border-rose-400/30 font-bold text-sm transition">
+              <i class="fa-solid fa-door-closed mr-1"></i> 退室する
+            </button>
+            <button id="btn-host-start-match" onclick="hostStartMatch()" class="hidden px-6 py-4 rounded-2xl bg-blue-500 hover:bg-blue-400 text-white font-black text-base shadow-lg shadow-blue-950/50 transition flex items-center gap-2">
+              <i class="fa-solid fa-play"></i>
+              <span>対戦をスタート！</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 参加者リスト & フレンドを招待パネル -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 flex-1">
+          <!-- 左：参加中のプレイヤー（その場でワンタップフレンド申請可能） -->
+          <div class="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col">
+            <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+              <h3 class="text-base sm:text-lg font-black text-slate-800 flex items-center gap-2">
+                <i class="fa-solid fa-users text-blue-600"></i>
+                <span>参加メンバー（<span id="lobby-player-count">0</span>人）</span>
+              </h3>
+              <span id="lobby-role-badge" class="text-xs font-bold bg-blue-50 text-blue-700 px-3 py-1 rounded-full">ホスト</span>
+            </div>
+
+            <div id="lobby-players-list" class="space-y-2.5 flex-1 overflow-y-auto">
+              <!-- JSで動的生成 -->
+            </div>
+
+            <p id="lobby-guest-wait-msg" class="hidden mt-4 text-center text-sm font-bold text-slate-500 bg-slate-50 py-3 rounded-2xl border border-slate-200">
+              <i class="fa-solid fa-spinner fa-spin text-blue-600 mr-1.5"></i>ホストがゲームを開始するのを待っています...
+            </p>
+          </div>
+
+          <!-- 右：フレンドを招待パネル（ワンタップ招待送信） -->
+          <div class="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col">
+            <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+              <h3 class="text-base sm:text-lg font-black text-slate-800 flex items-center gap-2">
+                <i class="fa-solid fa-paper-plane text-indigo-600"></i>
+                <span>フレンドを招待（ワンタップ通知）</span>
+              </h3>
+              <button onclick="switchTab('friends')" class="text-xs font-bold text-indigo-600 hover:underline">
+                + フレンド追加
+              </button>
+            </div>
+
+            <div id="lobby-invite-friends-list" class="space-y-2.5 flex-1 overflow-y-auto">
+              <!-- JSで動的生成 -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 1-C. ゲームプレイ中画面 (ACTIVE GAMEPLAY) -->
+      <div id="play-active-screen" class="hidden flex-1 flex flex-col gap-4">
+        <!-- 上部ステータス＆リアルタイムスコアボード -->
+        <div class="bg-white rounded-2xl px-4 py-3 border border-slate-200 shadow-xs flex flex-col gap-2.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2.5">
+              <span class="bg-blue-600 text-white font-black px-3 py-1 rounded-xl text-xs sm:text-sm">
+                第 <span id="q-current-num">1</span> / <span id="q-total-num">3</span> 問
+              </span>
+              <span id="q-category-badge" class="bg-slate-100 text-slate-700 font-bold px-3 py-1 rounded-xl text-xs">
+                一般
+              </span>
+              <span id="game-mode-badge" class="bg-indigo-50 text-indigo-700 font-bold px-2.5 py-1 rounded-xl text-xs">
+                ルーム対戦
+              </span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button onclick="confirmQuitGame()" class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 text-xs font-bold transition">
+                <i class="fa-solid fa-door-open mr-1"></i>終了・退室
+              </button>
+            </div>
+          </div>
+
+          <!-- プレイヤー一覧＆スコアバー -->
+          <div id="live-scoreboard" class="flex items-center gap-2 overflow-x-auto pb-1">
+            <!-- JSで動的生成 -->
+          </div>
+        </div>
+
+        <!-- 問題表示カード -->
+        <div class="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col md:flex-row gap-5 items-start">
+          <div class="flex-1 w-full">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-black uppercase tracking-wider text-blue-600">QUESTION</span>
+              <div class="flex items-center gap-2">
+                <span id="reading-status" class="text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-0.5 rounded-full animate-pulse">
+                  <i class="fa-solid fa-volume-low mr-1"></i>出題中...
+                </span>
+                <button id="btn-host-reveal-all" onclick="hostRevealFullQuestion()" class="hidden text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1 rounded-lg">
+                  全文表示
+                </button>
+              </div>
+            </div>
+            <p id="question-text-area" class="text-lg sm:text-2xl font-extrabold text-slate-900 leading-relaxed min-h-[4rem] select-text whitespace-pre-wrap"></p>
+          </div>
+
+          <!-- 添付画像エリア -->
+          <div id="question-image-container" class="hidden w-full md:w-72 shrink-0 bg-slate-50 rounded-2xl border border-slate-200 p-2 flex items-center justify-center">
+            <img id="question-image-display" src="" alt="問題画像" class="max-h-52 w-auto rounded-xl object-contain">
+          </div>
+        </div>
+
+        <!-- フェーズ1: 早押しボタンエリア -->
+        <div id="phase-buzzer" class="flex-1 flex flex-col items-center justify-center py-6 sm:py-8 bg-white rounded-3xl border border-slate-200 shadow-xs">
+          <p id="buzzer-instruction-text" class="text-slate-600 font-bold text-sm sm:text-base mb-5 text-center px-4">
+            答えが分かったら早押しボタンをタップ！（スペースキーでも反応）
+          </p>
+          <button onclick="triggerBuzzer()" id="btn-buzzer" class="buzzer-btn buzzer-pulse w-52 h-52 sm:w-60 sm:h-60 rounded-full text-white flex flex-col items-center justify-center gap-1.5 focus:outline-none">
+            <i class="fa-solid fa-hand-pointer text-5xl mb-1"></i>
+            <span class="text-2xl sm:text-3xl font-black tracking-wider">早押し！</span>
+            <span class="text-xs font-bold opacity-90 bg-black/20 px-3 py-1 rounded-full">解答権を取る</span>
+          </button>
+
+          <div class="mt-6 flex flex-wrap items-center justify-center gap-4">
+            <button id="btn-skip-question" onclick="skipOrNextQuestion()" class="text-xs font-bold text-slate-400 hover:text-slate-600 underline">
+              誰も分からないので模範解答を見る
+            </button>
+          </div>
+        </div>
+
+        <!-- フェーズ2: 解答入力エリア（解答権獲得者用 & 他プレイヤー待機表示） -->
+        <div id="phase-input" class="hidden flex-1 flex flex-col">
+          <!-- 2-A: 自分が解答権を持っている場合 -->
+          <div id="my-input-panel" class="hidden flex-1 flex flex-col bg-white rounded-3xl border-2 border-blue-600 shadow-md overflow-hidden">
+            <div class="bg-blue-50 px-4 py-3 border-b border-blue-100 flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="bg-rose-500 text-white text-xs font-black px-2.5 py-1 rounded-lg animate-bounce">解答権獲得！</span>
+                <span class="text-sm font-extrabold text-slate-800">手書きまたはタイピングで解答しよう</span>
+              </div>
+
+              <!-- 手書き / タイピング 切替 -->
+              <div class="flex bg-white p-1 rounded-xl border border-blue-200 shadow-2xs">
+                <button type="button" onclick="switchInputMethod('draw')" id="tab-input-draw" class="px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-1.5 bg-blue-600 text-white transition">
+                  <i class="fa-solid fa-pen-nib"></i>
+                  <span>手書き（ペン）</span>
+                </button>
+                <button type="button" onclick="switchInputMethod('type')" id="tab-input-type" class="px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-1.5 text-slate-600 hover:text-slate-900 transition">
+                  <i class="fa-solid fa-keyboard"></i>
+                  <span>タイピング</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 手書きキャンバス -->
+            <div id="input-area-draw" class="flex-1 flex flex-col p-3 sm:p-4">
+              <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5 bg-slate-100 p-2 rounded-2xl">
+                <div class="flex items-center gap-2">
+                  <button type="button" onclick="setPenColor('#0f172a')" id="color-black" class="w-8 h-8 rounded-full bg-slate-900 ring-2 ring-offset-2 ring-blue-500 transition" title="黒"></button>
+                  <button type="button" onclick="setPenColor('#ef4444')" id="color-red" class="w-8 h-8 rounded-full bg-red-500 transition" title="赤"></button>
+                  <button type="button" onclick="setPenColor('#2563eb')" id="color-blue" class="w-8 h-8 rounded-full bg-blue-600 transition" title="青"></button>
+                  <div class="w-px h-5 bg-slate-300 mx-0.5"></div>
+                  <button type="button" onclick="setEraser()" id="tool-eraser" class="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1 hover:bg-slate-50 transition">
+                    <i class="fa-solid fa-eraser"></i>
+                    <span>消しゴム</span>
+                  </button>
+                </div>
+
+                <div class="flex items-center gap-2">
+                  <button type="button" onclick="setPenSize(3)" id="size-3" class="w-8 h-8 rounded-xl bg-white border border-slate-200 flex items-center justify-center transition" title="細">
+                    <span class="w-1.5 h-1.5 rounded-full bg-slate-800"></span>
+                  </button>
+                  <button type="button" onclick="setPenSize(6)" id="size-6" class="w-8 h-8 rounded-xl bg-blue-100 border-2 border-blue-500 flex items-center justify-center transition" title="中">
+                    <span class="w-3 h-3 rounded-full bg-slate-800"></span>
+                  </button>
+                  <button type="button" onclick="setPenSize(12)" id="size-12" class="w-8 h-8 rounded-xl bg-white border border-slate-200 flex items-center justify-center transition" title="太">
+                    <span class="w-4.5 h-4.5 rounded-full bg-slate-800"></span>
+                  </button>
+                  <div class="w-px h-5 bg-slate-300 mx-0.5"></div>
+                  <button type="button" onclick="clearCanvas()" class="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-600 border border-rose-200 text-xs font-bold flex items-center gap-1 hover:bg-rose-100 transition">
+                    <i class="fa-solid fa-trash-can"></i>
+                    <span>全消去</span>
+                  </button>
+                </div>
+              </div>
+
+              <div id="canvas-wrapper" class="relative flex-1 min-h-[220px] sm:min-h-[260px] w-full rounded-2xl border-2 border-dashed border-slate-300 bg-white overflow-hidden">
+                <canvas id="answer-canvas" class="drawing-canvas w-full h-full block"></canvas>
+                <div id="canvas-placeholder" class="pointer-events-none absolute inset-0 flex items-center justify-center text-slate-300 font-bold text-base sm:text-xl">
+                  ここに指やスタイラスペンで解答を書いてください
+                </div>
+              </div>
+            </div>
+
+            <!-- タイピング入力 -->
+            <div id="input-area-type" class="hidden flex-1 flex flex-col p-4 sm:p-6">
+              <label for="answer-text-input" class="text-xs font-bold text-slate-500 mb-2">キーボードで解答を入力：</label>
+              <textarea id="answer-text-input" rows="4" placeholder="ここに解答を入力してください..." class="w-full flex-1 rounded-2xl border-2 border-slate-300 p-4 text-lg sm:text-xl font-bold text-slate-900 focus:outline-none focus:border-blue-500 resize-none"></textarea>
+            </div>
+
+            <!-- 送信ボタン -->
+            <div class="p-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+              <button onclick="submitAnswerForAIGrading()" class="w-full sm:w-auto px-8 py-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-base sm:text-lg shadow-md shadow-blue-200 transition flex items-center justify-center gap-2">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                <span>解答を提出してAI採点へ！</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 2-B: 他のプレイヤーが解答中の待機パネル -->
+          <div id="other-answering-panel" class="hidden flex-1 bg-white rounded-3xl border border-slate-200 p-8 flex flex-col items-center justify-center text-center">
+            <div class="w-16 h-16 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center text-3xl mb-4 animate-bounce">
+              <i class="fa-solid fa-pen-fancy"></i>
+            </div>
+            <h3 class="text-xl font-black text-slate-900 mb-1">
+              <span id="answering-player-name" class="text-blue-600">プレイヤー</span> さんが解答を作成中...
+            </h3>
+            <p class="text-sm text-slate-500">解答が提出されると自動的にAI採点結果が表示されます。</p>
+          </div>
+        </div>
+
+        <!-- フェーズ3: AI採点結果・ホスト得点確定画面 -->
+        <div id="phase-grading" class="hidden flex-1 flex flex-col bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="bg-slate-900 text-white px-5 py-3 flex items-center justify-between">
+            <span class="font-extrabold text-sm sm:text-base flex items-center gap-2">
+              <i class="fa-solid fa-robot text-indigo-400"></i>
+              <span>Gemini AI 記述採点レポート</span>
+            </span>
+            <span id="grading-respondent-badge" class="text-xs font-bold bg-white/15 px-3 py-1 rounded-full">
+              解答者: ---
+            </span>
+          </div>
+
+          <!-- AI採点ローディング表示 -->
+          <div id="ai-grading-loader" class="flex-1 flex flex-col items-center justify-center p-10 text-center">
+            <div class="w-16 h-16 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin mb-4"></div>
+            <h4 class="text-lg font-black text-slate-800 mb-1">AIが解答を解析・採点しています...</h4>
+            <p class="text-xs text-slate-500">必須語句の使用状況と、質問の意図に的を射た回答かを判定中</p>
+          </div>
+
+          <!-- AI採点結果コンテンツ -->
+          <div id="ai-grading-content" class="hidden flex-1 flex flex-col">
+            <div class="grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-slate-200 flex-1">
+              <!-- 左5カラム：提出された解答 & 模範解答 -->
+              <div class="lg:col-span-5 p-5 flex flex-col gap-4 bg-slate-50/50">
+                <div>
+                  <span class="text-xs font-extrabold text-blue-600 block mb-1.5">
+                    <i class="fa-solid fa-user-pen mr-1"></i>提出された解答
+                  </span>
+                  <div id="graded-user-draw-box" class="bg-white rounded-2xl border border-slate-200 p-2 flex items-center justify-center min-h-[130px]">
+                    <img id="graded-user-draw-img" src="" alt="手書き解答" class="max-h-44 w-auto object-contain">
+                  </div>
+                  <div id="graded-user-text-box" class="hidden bg-white rounded-2xl border border-slate-200 p-3.5 text-base font-bold text-slate-800 whitespace-pre-wrap"></div>
+                </div>
+
+                <div>
+                  <span class="text-xs font-extrabold text-emerald-600 block mb-1.5">
+                    <i class="fa-solid fa-check-double mr-1"></i>模範解答
+                  </span>
+                  <div class="bg-emerald-50/80 rounded-2xl border border-emerald-200 p-3.5">
+                    <p id="graded-model-answer" class="text-base font-black text-emerald-900 whitespace-pre-wrap"></p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 右7カラム：AIスコア・必須語句チェック・講評 -->
+              <div class="lg:col-span-7 p-5 flex flex-col gap-4">
+                <!-- スコア＆的を射ているかバッジ -->
+                <div class="flex flex-wrap items-center justify-between gap-3 bg-indigo-50/70 rounded-2xl p-4 border border-indigo-100">
+                  <div class="flex items-baseline gap-2">
+                    <span class="text-xs font-extrabold text-indigo-700">AI採点スコア:</span>
+                    <span id="ai-score-number" class="text-4xl font-black text-indigo-600">0</span>
+                    <span class="text-sm font-bold text-indigo-400">/ 100点</span>
+                  </div>
+                  <div id="ai-hits-mark-badge" class="px-3.5 py-1.5 rounded-xl text-xs font-black bg-emerald-100 text-emerald-700">
+                    <i class="fa-solid fa-bullseye mr-1"></i>的を射た回答です！
+                  </div>
+                </div>
+
+                <!-- 必須語句（キーワード）チェックリスト -->
+                <div>
+                  <span class="text-xs font-extrabold text-slate-600 block mb-2">
+                    <i class="fa-solid fa-tags text-blue-600 mr-1"></i>必須語句チェック
+                  </span>
+                  <div id="ai-keywords-badges" class="flex flex-wrap gap-2">
+                    <!-- JSで動的生成 -->
+                  </div>
+                </div>
+
+                <!-- AI講評フィードバック -->
+                <div class="flex-1 flex flex-col">
+                  <span class="text-xs font-extrabold text-slate-600 block mb-1.5">
+                    <i class="fa-solid fa-comment-dots text-indigo-600 mr-1"></i>AIの講評・アドバイス
+                  </span>
+                  <div id="ai-feedback-text" class="flex-1 bg-slate-50 rounded-2xl p-4 border border-slate-200 text-sm text-slate-700 leading-relaxed whitespace-pre-wrap"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 下部アクションバー（ホスト確定 or 誤答パス / ソロ次へ） -->
+            <div id="grading-action-footer" class="p-4 bg-slate-100 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <!-- ホスト用コントロール -->
+              <div id="host-grading-controls" class="w-full flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                  <label for="host-adjust-score" class="text-xs font-extrabold text-slate-700">付与ポイント調整:</label>
+                  <input type="number" id="host-adjust-score" min="0" max="100" value="100" class="w-24 bg-white border border-slate-300 rounded-xl px-3 py-2 text-center font-black text-base text-blue-600">
+                  <span class="text-xs font-bold text-slate-500">pt</span>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+                  <button id="btn-pass-buzzer" onclick="hostPassBuzzerToOthers()" class="px-4 py-3 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs sm:text-sm shadow-xs transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-rotate-left"></i>
+                    <span>誤答として他の人に解答権を回す</span>
+                  </button>
+                  <button onclick="hostConfirmAndNext()" class="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-200 transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-check"></i>
+                    <span>得点を確定して次の問題へ</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- ゲスト待機メッセージ -->
+              <div id="guest-grading-wait" class="hidden w-full text-center text-sm font-bold text-slate-600 py-1">
+                <i class="fa-solid fa-spinner fa-spin text-blue-600 mr-1.5"></i>ホストが得点確定または次の問題へ進むのを待っています...
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 1-D. 対戦終了・リザルト画面 -->
+      <div id="play-result-screen" class="hidden flex-1 flex flex-col bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs">
+        <div class="text-center max-w-lg mx-auto mb-6">
+          <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-100 text-amber-500 text-3xl mb-3">
+            <i class="fa-solid fa-trophy"></i>
+          </div>
+          <h2 class="text-2xl sm:text-3xl font-black text-slate-900">最終結果発表！</h2>
+          <p class="text-xs sm:text-sm text-slate-500 mt-1">お疲れさまでした！一緒に遊んだメンバーにフレンド申請もできます。</p>
+        </div>
+
+        <!-- ランキングリスト -->
+        <div id="result-ranking-list" class="max-w-2xl w-full mx-auto space-y-3 flex-1 overflow-y-auto mb-6">
+          <!-- JSで動的生成 -->
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-3 justify-center pt-4 border-t border-slate-100">
+          <button onclick="returnToHomeFromResult()" class="px-8 py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-base shadow-md shadow-blue-200 transition flex items-center justify-center gap-2">
+            <i class="fa-solid fa-house"></i>
+            <span>ホーム画面へ戻る</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- =====================================================================
+         2. フレンドタブ (FRIENDS & ONE-TAP JOIN VIEW)
+    ====================================================================== -->
+    <section id="view-friends" class="hidden flex-1 flex flex-col gap-5">
+
+      <!-- 上段：自分のフレンドコード & フレンドコード検索申請 -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <!-- 自分のフレンドコードカード -->
+        <div class="bg-gradient-to-br from-indigo-600 to-blue-700 text-white rounded-3xl p-6 shadow-md flex flex-col justify-between">
+          <div>
+            <span class="text-xs font-extrabold uppercase tracking-wider text-indigo-200">YOUR FRIEND CODE</span>
+            <h2 class="text-xl font-black mt-1">あなたのフレンドコード</h2>
+            <p class="text-xs text-indigo-100 mt-1 leading-relaxed">
+              この6桁のコードを友達に教えてフレンド登録すると、次回からID・パスワード不要でワンタップ招待＆参加ができます！
+            </p>
+          </div>
+
+          <div class="mt-5 bg-white/15 backdrop-blur-xs border border-white/25 rounded-2xl p-4 flex items-center justify-between gap-3">
+            <span id="friends-tab-my-code" class="font-mono text-3xl sm:text-4xl font-black tracking-widest text-amber-300">------</span>
+            <button onclick="copyMyFriendCode()" class="px-4 py-3 rounded-xl bg-white text-indigo-700 hover:bg-indigo-50 font-black text-sm shadow-sm transition flex items-center gap-2 shrink-0">
+              <i class="fa-regular fa-copy"></i>
+              <span>コードをコピー</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- フレンドコードを入力して申請 -->
+        <div class="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs flex flex-col justify-between">
+          <div>
+            <span class="text-xs font-extrabold uppercase tracking-wider text-blue-600">ADD A FRIEND</span>
+            <h2 class="text-xl font-black text-slate-900 mt-1">フレンドを追加する</h2>
+            <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+              相手の6桁のフレンドコードを入力してフレンド申請を送ります。
+            </p>
+          </div>
+
+          <form onsubmit="sendFriendRequestByCode(event)" class="mt-5 flex flex-col sm:flex-row gap-2.5">
+            <input type="text" id="input-friend-code-search" maxlength="6" placeholder="例: Q7K29M" class="flex-1 uppercase font-mono text-xl font-black tracking-widest text-center bg-slate-50 border-2 border-slate-200 focus:border-blue-500 focus:bg-white rounded-2xl px-4 py-3 outline-none transition">
+            <button type="submit" class="px-6 py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-sm shadow-md shadow-blue-200 transition flex items-center justify-center gap-2 shrink-0">
+              <i class="fa-solid fa-user-plus"></i>
+              <span>フレンド申請</span>
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- 中段：届いているフレンド申請 & ルーム招待 -->
+      <div id="incoming-requests-section" class="hidden bg-amber-50/80 rounded-3xl border border-amber-200 p-5 sm:p-6">
+        <h3 class="text-base font-black text-amber-900 mb-3 flex items-center gap-2">
+          <i class="fa-solid fa-bell text-amber-500"></i>
+          <span>届いているフレンド申請（<span id="incoming-req-count">0</span>件）</span>
+        </h3>
+        <div id="incoming-requests-list" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <!-- JSで動的生成 -->
+        </div>
+      </div>
+
+      <!-- 下段：フレンド一覧（ワンタップ参加ボタン付き） -->
+      <div class="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs flex-1">
+        <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+          <h3 class="text-lg font-black text-slate-900 flex items-center gap-2">
+            <i class="fa-solid fa-address-book text-blue-600"></i>
+            <span>フレンド一覧（<span id="friends-total-count">0</span>人）</span>
+          </h3>
+          <span class="text-xs text-slate-400 font-bold">ルーム待機中のフレンドには「ワンタップ参加」が表示されます</span>
+        </div>
+
+        <div id="friends-list-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- JSで動的生成 -->
+        </div>
+      </div>
+    </section>
+
+    <!-- =====================================================================
+         3. 問題を作るタブ (CREATE / EDIT QUESTION VIEW)
+    ====================================================================== -->
+    <section id="view-create" class="hidden flex-1 flex flex-col">
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-xs p-5 sm:p-8 max-w-3xl w-full mx-auto">
+        <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
+          <div>
+            <h2 id="form-title" class="text-xl sm:text-2xl font-black text-slate-900">新しい記述・早押し問題を作成</h2>
+            <p class="text-xs sm:text-sm text-slate-500 mt-1">AI採点用の「必須語句」や「採点基準」を設定すると高精度に採点できます</p>
+          </div>
+          <button type="button" id="btn-cancel-edit" onclick="cancelEdit()" class="hidden px-4 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold hover:bg-slate-200">
+            編集をキャンセル
+          </button>
+        </div>
+
+        <form id="question-form" onsubmit="saveQuestion(event)" class="space-y-5">
+          <input type="hidden" id="edit-question-id" value="">
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-bold text-slate-700 mb-1.5">カテゴリー（教科・ジャンル）</label>
+              <input type="text" id="input-category" list="category-suggestions" placeholder="例：理科、日本史、数学、英語" class="w-full rounded-xl border border-slate-300 px-4 py-3 text-base font-medium focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <datalist id="category-suggestions">
+                <option value="理科・科学">
+                <option value="社会・歴史">
+                <option value="数学・図形">
+                <option value="英語・国語">
+                <option value="一般教養">
+              </datalist>
+            </div>
+
+            <div>
+              <label class="block text-sm font-bold text-slate-700 mb-1.5">
+                AI採点用・必須語句（カンマ区切り）
+              </label>
+              <input type="text" id="input-keywords" placeholder="例：葉緑体, 二酸化炭素, 酸素" class="w-full rounded-xl border border-slate-300 px-4 py-3 text-base font-medium focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+          </div>
+
+          <!-- 問題文 -->
+          <div>
+            <label class="block text-sm font-bold text-slate-700 mb-1.5">
+              問題文 <span class="text-rose-500">*</span>
+            </label>
+            <textarea id="input-question" required rows="3" placeholder="例：植物の葉で行われる光合成とはどのような働きか、必要な物質とつくられる物質に触れて説明しなさい。" class="w-full rounded-2xl border border-slate-300 p-4 text-base font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+          </div>
+
+          <!-- 画像添付エリア -->
+          <div>
+            <label class="block text-sm font-bold text-slate-700 mb-1.5">
+              問題画像（任意・図形や資料の写真など）
+            </label>
+            <div id="drop-zone" class="border-2 border-dashed border-slate-300 hover:border-blue-400 rounded-2xl p-5 text-center transition bg-slate-50/60 cursor-pointer" onclick="document.getElementById('input-image-file').click()">
+              <input type="file" id="input-image-file" accept="image/*" class="hidden" onchange="handleImageUpload(event)">
+              <div id="image-upload-prompt">
+                <i class="fa-regular fa-image text-3xl text-slate-400 mb-2"></i>
+                <p class="text-sm font-bold text-slate-600">タップして写真・図版を選択</p>
+                <p class="text-xs text-slate-400 mt-1">自動で最適サイズに圧縮して保存されます</p>
+              </div>
+              <div id="image-preview-box" class="hidden flex flex-col items-center">
+                <img id="image-preview" src="" alt="プレビュー" class="max-h-48 rounded-xl border border-slate-200 shadow-xs mb-3">
+                <button type="button" onclick="removeUploadedImage(event)" class="px-4 py-2 rounded-xl bg-rose-50 text-rose-600 text-xs font-bold hover:bg-rose-100 flex items-center gap-1.5">
+                  <i class="fa-solid fa-trash"></i> 画像を削除する
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 模範解答 -->
+          <div>
+            <label class="block text-sm font-bold text-slate-700 mb-1.5">
+              模範解答 <span class="text-rose-500">*</span>
+            </label>
+            <textarea id="input-answer" required rows="2" placeholder="例：葉緑体に光が当たることで、二酸化炭素と水からデンプンなどの養分と酸素をつくる働き。" class="w-full rounded-2xl border border-slate-300 p-4 text-base font-bold text-emerald-800 focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+          </div>
+
+          <!-- AI採点基準メモ -->
+          <div>
+            <label class="block text-sm font-bold text-slate-700 mb-1.5">AI採点基準・解説メモ（任意）</label>
+            <textarea id="input-rubric" rows="2" placeholder="例：「光のエネルギーを使うこと」「二酸化炭素と水が材料であること」が書かれていれば高評価とする。" class="w-full rounded-2xl border border-slate-300 p-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+          </div>
+
+          <div class="pt-2">
+            <button type="submit" class="w-full py-4 px-6 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-base shadow-md shadow-blue-200 transition flex items-center justify-center gap-2">
+              <i class="fa-solid fa-floppy-disk"></i>
+              <span id="btn-save-label">この問題を登録する</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- =====================================================================
+         4. 問題一覧タブ (QUESTIONS LIST VIEW)
+    ====================================================================== -->
+    <section id="view-list" class="hidden flex-1 flex flex-col">
+      <div class="bg-white rounded-3xl border border-slate-200 shadow-xs p-5 sm:p-8">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100">
+          <div>
+            <h2 class="text-xl sm:text-2xl font-black text-slate-900">登録済み問題一覧</h2>
+            <p class="text-xs sm:text-sm text-slate-500 mt-1">クラウド保存された問題の編集・削除やJSONバックアップができます</p>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <button onclick="exportQuestionsJSON()" class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-download text-blue-600"></i>
+              <span>JSON出力</span>
+            </button>
+            <label class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer">
+              <i class="fa-solid fa-upload text-emerald-600"></i>
+              <span>JSON読込</span>
+              <input type="file" accept=".json" class="hidden" onchange="importQuestionsJSON(event)">
+            </label>
+            <button onclick="confirmAddSamples()" class="px-3.5 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-bold flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-wand-magic-sparkles"></i>
+              <span>サンプル追加</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="questions-list-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- JSで動的生成 -->
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- トースト通知 -->
+  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none opacity-0 transition-all duration-300 translate-y-4">
+    <div class="bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-xl font-bold text-sm flex items-center gap-2.5">
+      <i id="toast-icon" class="fa-solid fa-circle-check text-emerald-400"></i>
+      <span id="toast-message">通知</span>
+    </div>
+  </div>
+
+  <!-- カスタム確認モーダル -->
+  <div id="custom-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100">
+      <h3 id="modal-title" class="text-lg font-black text-slate-900 mb-2">確認</h3>
+      <p id="modal-desc" class="text-sm text-slate-600 mb-6 leading-relaxed"></p>
+      <div class="flex gap-3 justify-end">
+        <button onclick="closeModal()" class="px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm transition">キャンセル</button>
+        <button id="modal-confirm-btn" class="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm transition">実行する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase & アプリケーションメインスクリプト -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import {
+      getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc,
+      collection, onSnapshot, runTransaction, arrayUnion, arrayRemove
+    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    /**
+     * =========================================================================
+     * 1. Firebase 初期化 & グローバル状態管理
+     * =========================================================================
+     */
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'q-output-default';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+
+    let app = null;
+    let db = null;
+    let auth = null;
+    let currentUser = null;
+    let myProfile = null;
+
+    // リアルタイム購読データ
+    let allPlayersMap = {};        // uid -> playerProfile
+    let incomingRequests = [];     // 自分宛てのpendingフレンド申請
+    let incomingInvites = [];      // 自分宛てのpendingルーム招待
+    let userQuestions = [];        // 自分の問題リスト
+    let currentRoomId = null;      // 現在入室中のルームID
+    let currentRoomData = null;    // 現在のルームドキュメント
+    let roomUnsubscribe = null;
+
+    // ソロモード用状態
+    let isSoloMode = false;
+    let soloQuestions = [];
+    let soloIndex = 0;
+    let soloScore = 0;
+    let soloRevealMode = 'typewriter';
+    let soloBuzzerActive = false;
+    let soloSubmission = null;
+    let soloAiResult = null;
+    let soloRankingHistory = [];
+
+    // タイピングアニメーション制御
+    let typewriterTimer = null;
+    let lastRenderedQKey = '';
+
+    // 初期サンプル問題（必須語句・採点基準付き）
+    const SAMPLE_QUESTIONS = [
+      {
+        id: 'sample-1',
+        category: '理科・科学',
+        keywords: ['葉緑体', '二酸化炭素', '酸素'],
+        question: '植物の葉で行われる「光合成」とはどのような働きですか？必要な物質とつくられる物質に触れて説明しなさい。',
+        image: '',
+        answer: '葉緑体に光が当たることで、二酸化炭素と水からデンプンなどの養分と酸素をつくり出す働き。',
+        rubric: '「二酸化炭素と水」を材料にして「養分（デンプン）と酸素」をつくることが書かれていれば高得点。葉緑体や光エネルギーに触れていれば満点。'
+      },
+      {
+        id: 'sample-2',
+        category: '数学・図形',
+        keywords: ['三平方の定理', '5'],
+        question: '右の図の直角三角形ABCにおいて、斜辺ABの長さ（x）を求めなさい。途中の式や考え方も書くこと。',
+        image: 'data:image/svg+xml;utf8,' + encodeURIComponent(`
+          <svg xmlns="http://www.w3.org/2000/svg" width="360" height="230" viewBox="0 0 360 230">
+            <rect width="360" height="230" fill="#ffffff"/>
+            <polygon points="80,180 260,180 80,55" fill="#eff6ff" stroke="#2563eb" stroke-width="4" stroke-linejoin="round"/>
+            <polyline points="80,160 100,160 100,180" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+            <text x="62" y="50" font-family="sans-serif" font-size="18" font-weight="bold" fill="#1e293b">A</text>
+            <text x="270" y="188" font-family="sans-serif" font-size="18" font-weight="bold" fill="#1e293b">B</text>
+            <text x="60" y="192" font-family="sans-serif" font-size="18" font-weight="bold" fill="#1e293b">C</text>
+            <text x="25" y="125" font-family="sans-serif" font-size="18" font-weight="bold" fill="#0f172a">3 cm</text>
+            <text x="150" y="208" font-family="sans-serif" font-size="18" font-weight="bold" fill="#0f172a">4 cm</text>
+            <text x="180" y="105" font-family="sans-serif" font-size="22" font-weight="bold" fill="#e11d48">x cm</text>
+          </svg>
+        `),
+        answer: '三平方の定理より 3² + 4² = x²、x² = 25、x > 0 より x = 5 cm',
+        rubric: '答えが 5 (cm) であり、3の2乗と4の2乗の和から導いていることが分かれば正解。'
+      },
+      {
+        id: 'sample-3',
+        category: '社会・歴史',
+        keywords: ['楽市楽座', '織田信長'],
+        question: '戦国時代に織田信長が城下町の商業を活性化させるために行った、座の特権を廃止し自由な商売を認めた政策を何といいますか？またその狙いを簡潔に答えなさい。',
+        image: '',
+        answer: '楽市楽座。商工業者の自由な取引を促し、城下町を発展させて経済力を高めるため。',
+        rubric: '「楽市楽座」という語句が正しく書けており、商業の自由化・城下町の発展という趣旨が含まれていれば満点。'
+      }
+    ];
+
+    // 6桁のユニークなフレンドコード生成（紛らわしい0/O, 1/Iを除外）
+    function generateFriendCode() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let code = '';
+      for (let i = 0; i < 6; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return code;
+    }
+
+    // 4桁の数字文字列生成
+    function generate4DigitNumber() {
+      return String(Math.floor(1000 + Math.random() * 9000));
+    }
+
+    // Firebase 認証と初期データロード
+    async function initFirebaseAndAuth() {
+      if (!firebaseConfig) {
+        showToast('Firebase設定が見つかりません', 'error');
+        return;
+      }
+
+      app = initializeApp(firebaseConfig);
+      db = getFirestore(app);
+      auth = getAuth(app);
+
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        await signInAnonymously(auth);
+      }
+
+      currentUser = auth.currentUser;
+      if (!currentUser) return;
+
+      await ensureUserProfile();
+      startRealtimeListeners();
+
+      // ページ離脱時にホスト中のルーム状態をクリーンアップ
+      window.addEventListener('beforeunload', () => {
+        if (currentRoomId && currentRoomData && currentRoomData.hostUid === currentUser.uid) {
+          clearMyActiveRoomStatus();
+        }
+      });
+    }
+
+    // プレイヤープロフィールの作成・取得
+    async function ensureUserProfile() {
+      if (!currentUser) return;
+      const playerRef = doc(db, 'artifacts', appId, 'public', 'data', 'players', currentUser.uid);
+      const snap = await getDoc(playerRef);
+
+      if (snap.exists()) {
+        myProfile = snap.data();
+        await updateDoc(playerRef, {
+          lastSeen: Date.now(),
+          activeRoom: null
+        });
+        myProfile.activeRoom = null;
+      } else {
+        const newCode = generateFriendCode();
+        const defaultName = 'プレイヤー' + newCode.slice(0, 3);
+        myProfile = {
+          uid: currentUser.uid,
+          nickname: defaultName,
+          friendCode: newCode,
+          friends: [],
+          activeRoom: null,
+          lastSeen: Date.now()
+        };
+        await setDoc(playerRef, myProfile);
+      }
+
+      syncProfileUI();
+    }
+
+    function syncProfileUI() {
+      if (!myProfile) return;
+      document.getElementById('header-friend-code').textContent = myProfile.friendCode;
+      document.getElementById('home-friend-code').textContent = myProfile.friendCode;
+      document.getElementById('friends-tab-my-code').textContent = myProfile.friendCode;
+      const nickInput = document.getElementById('profile-nickname-input');
+      if (document.activeElement !== nickInput) {
+        nickInput.value = myProfile.nickname;
+      }
+    }
+
+    /**
+     * =========================================================================
+     * 2. Firestore リアルタイム購読（全プレイヤー・申請・招待・自分の問題）
+     * =========================================================================
+     */
+    function startRealtimeListeners() {
+      if (!currentUser) return;
+
+      // 1. 全プレイヤー購読（フレンド状態・ワンタップ参加判定用）
+      const playersCol = collection(db, 'artifacts', appId, 'public', 'data', 'players');
+      onSnapshot(playersCol, (snapshot) => {
+        const map = {};
+        snapshot.forEach(d => {
+          map[d.id] = d.data();
+        });
+        allPlayersMap = map;
+        if (map[currentUser.uid]) {
+          myProfile = map[currentUser.uid];
+          syncProfileUI();
+        }
+        renderFriendsUI();
+        if (currentRoomData) renderLobbyUI();
+      }, (err) => {
+        console.error('Players listener error:', err);
+      });
+
+      // 2. フレンド申請購読
+      const reqCol = collection(db, 'artifacts', appId, 'public', 'data', 'friendRequests');
+      onSnapshot(reqCol, (snapshot) => {
+        const reqs = [];
+        snapshot.forEach(d => {
+          const data = d.data();
+          if (data.toUid === currentUser.uid && data.status === 'pending') {
+            reqs.push({ id: d.id, ...data });
+          }
+        });
+        incomingRequests = reqs;
+        renderFriendsUI();
+      }, (err) => {
+        console.error('Requests listener error:', err);
+      });
+
+      // 3. ルーム招待購読（リアルタイム通知バナー）
+      const invitesCol = collection(db, 'artifacts', appId, 'public', 'data', 'invites');
+      onSnapshot(invitesCol, (snapshot) => {
+        const invs = [];
+        const now = Date.now();
+        snapshot.forEach(d => {
+          const data = d.data();
+          // 過去15分以内の自分宛てpending招待を抽出
+          if (data.toUid === currentUser.uid && data.status === 'pending' && (now - (data.createdAt || 0) < 15 * 60 * 1000)) {
+            invs.push({ id: d.id, ...data });
+          }
+        });
+        invs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        incomingInvites = invs;
+        renderInviteBanners();
+        renderFriendsUI();
+      }, (err) => {
+        console.error('Invites listener error:', err);
+      });
+
+      // 4. 自分の問題コレクション購読
+      const qCol = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'questions');
+      onSnapshot(qCol, async (snapshot) => {
+        if (snapshot.empty && !window._seededSamples) {
+          window._seededSamples = true;
+          for (const sq of SAMPLE_QUESTIONS) {
+            const qRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'questions', sq.id);
+            await setDoc(qRef, sq);
+          }
+          return;
+        }
+        const list = [];
+        snapshot.forEach(d => list.push({ id: d.id, ...d.data() }));
+        list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        userQuestions = list;
+        updateQuestionDropdownsAndList();
+      }, (err) => {
+        console.error('Questions listener error:', err);
+      });
+    }
+
+    /**
+     * =========================================================================
+     * 3. フレンド機能・ワンタップ招待・ワンタップ入室ロジック
+     * =========================================================================
+     */
+    window.updateNickname = async function(newName) {
+      if (!currentUser || !myProfile) return;
+      const trimmed = newName.trim();
+      if (!trimmed) {
+        syncProfileUI();
+        return;
+      }
+      const playerRef = doc(db, 'artifacts', appId, 'public', 'data', 'players', currentUser.uid);
+      await updateDoc(playerRef, { nickname: trimmed, lastSeen: Date.now() });
+      showToast('プレイヤー名を更新しました');
+    };
+
+    window.copyMyFriendCode = function() {
+      if (!myProfile) return;
+      copyTextFallback(myProfile.friendCode, `フレンドコード「${myProfile.friendCode}」をコピーしました！`);
+    };
+
+    window.copyRoomCredentials = function() {
+      if (!currentRoomData) return;
+      const text = `【Q-Output! 対戦招待】ルームID: ${currentRoomData.roomId} / パスワード: ${currentRoomData.password}`;
+      copyTextFallback(text, 'ルームIDとパスワードをコピーしました！');
+    };
+
+    function copyTextFallback(text, successMsg) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        showToast(successMsg);
+      } catch (e) {
+        showToast('コピーに失敗しました', 'error');
+      }
+      document.body.removeChild(ta);
+    }
+
+    // 6桁コードからフレンド申請送信
+    window.sendFriendRequestByCode = async function(e) {
+      e.preventDefault();
+      if (!currentUser || !myProfile) return;
+      const inputEl = document.getElementById('input-friend-code-search');
+      const targetCode = inputEl.value.trim().toUpperCase();
+
+      if (targetCode.length !== 6) {
+        showToast('6桁のフレンドコードを入力してください', 'error');
+        return;
+      }
+      if (targetCode === myProfile.friendCode) {
+        showToast('自分自身のコードは登録できません', 'error');
+        return;
+      }
+
+      const targetPlayer = Object.values(allPlayersMap).find(p => p.friendCode === targetCode);
+      if (!targetPlayer) {
+        showToast('該当するフレンドコードが見つかりません', 'error');
+        return;
+      }
+
+      await sendFriendRequestToUid(targetPlayer.uid);
+      inputEl.value = '';
+    };
+
+    // UID指定でフレンド申請（ロビーやリザルトからのワンタップ申請兼用）
+    window.sendFriendRequestToUid = async function(targetUid) {
+      if (!currentUser || !myProfile || targetUid === currentUser.uid) return;
+      if ((myProfile.friends || []).includes(targetUid)) {
+        showToast('すでにフレンド登録されています');
+        return;
+      }
+
+      const reqId = `${currentUser.uid}_${targetUid}`;
+      const reqRef = doc(db, 'artifacts', appId, 'public', 'data', 'friendRequests', reqId);
+      await setDoc(reqRef, {
+        fromUid: currentUser.uid,
+        fromName: myProfile.nickname,
+        fromCode: myProfile.friendCode,
+        toUid: targetUid,
+        status: 'pending',
+        createdAt: Date.now()
+      });
+      const targetName = allPlayersMap[targetUid]?.nickname || 'プレイヤー';
+      showToast(`${targetName}さんにフレンド申請を送りました！`);
+    };
+
+    // フレンド申請を承認
+    window.acceptFriendRequest = async function(reqId, fromUid) {
+      if (!currentUser) return;
+      const reqRef = doc(db, 'artifacts', appId, 'public', 'data', 'friendRequests', reqId);
+      const myRef = doc(db, 'artifacts', appId, 'public', 'data', 'players', currentUser.uid);
+      const theirRef = doc(db, 'artifacts', appId, 'public', 'data', 'players', fromUid);
+
+      await updateDoc(reqRef, { status: 'accepted' });
+      await updateDoc(myRef, { friends: arrayUnion(fromUid) });
+      await updateDoc(theirRef, { friends: arrayUnion(currentUser.uid) });
+      showToast('フレンドになりました！');
+    };
+
+    // フレンド申請を拒否
+    window.declineFriendRequest = async function(reqId) {
+      if (!currentUser) return;
+      const reqRef = doc(db, 'artifacts', appId, 'public', 'data', 'friendRequests', reqId);
+      await deleteDoc(reqRef);
+      showToast('申請を辞退しました');
+    };
+
+    // フレンドタブ＆ホーム画面のフレンド状態描画
+    function renderFriendsUI() {
+      if (!myProfile) return;
+      const friendUids = myProfile.friends || [];
+      const badgeTotal = incomingRequests.length + incomingInvites.length;
+
+      // ナビゲーションバッジ更新
+      const navBadge = document.getElementById('badge-friends');
+      if (badgeTotal > 0) {
+        navBadge.textContent = badgeTotal;
+        navBadge.classList.remove('hidden');
+      } else {
+        navBadge.classList.add('hidden');
+      }
+
+      document.getElementById('friends-total-count').textContent = friendUids.length;
+      document.getElementById('home-friend-online-pill').textContent = `${friendUids.length}人`;
+
+      // 届いているフレンド申請セクション
+      const reqSection = document.getElementById('incoming-requests-section');
+      const reqList = document.getElementById('incoming-requests-list');
+      document.getElementById('incoming-req-count').textContent = incomingRequests.length;
+
+      if (incomingRequests.length > 0) {
+        reqSection.classList.remove('hidden');
+        reqList.innerHTML = incomingRequests.map(req => `
+          <div class="bg-white rounded-2xl p-4 border border-amber-200 flex items-center justify-between gap-3 shadow-2xs">
+            <div>
+              <p class="font-extrabold text-slate-900 text-sm">${escapeHtml(req.fromName)}</p>
+              <p class="text-xs font-mono text-slate-500">ID: ${escapeHtml(req.fromCode)}</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="acceptFriendRequest('${req.id}', '${req.fromUid}')" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold transition">
+                承認する
+              </button>
+              <button onclick="declineFriendRequest('${req.id}')" class="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold transition">
+                辞退
+              </button>
+            </div>
+          </div>
+        `).join('');
+      } else {
+        reqSection.classList.add('hidden');
+      }
+
+      // フレンド一覧コンテナ（フレンドタブ） & ホーム画面のワンタップ参加ショートカット
+      const container = document.getElementById('friends-list-container');
+      const homeShortcut = document.getElementById('home-active-friends-rooms');
+
+      if (friendUids.length === 0) {
+        container.innerHTML = `
+          <div class="col-span-full text-center py-10 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
+            <i class="fa-solid fa-user-group text-3xl text-slate-300 mb-2"></i>
+            <p class="text-sm font-bold text-slate-500">まだフレンドがいません</p>
+            <p class="text-xs text-slate-400 mt-1">上のフォームにフレンドコードを入力して友達を追加しよう！</p>
+          </div>
+        `;
+        homeShortcut.innerHTML = `
+          <div class="text-xs text-slate-400 bg-slate-50 rounded-xl p-3 text-center border border-dashed border-slate-200">
+            フレンドを追加すると、ここからワンタップで部屋に参加できます
+          </div>
+        `;
+        return;
+      }
+
+      let activeRoomCardsHtml = '';
+      const cardsHtml = friendUids.map(fUid => {
+        const f = allPlayersMap[fUid];
+        if (!f) return '';
+
+        const hasRoom = f.activeRoom && f.activeRoom.roomId && f.activeRoom.password;
+        const isOnline = (Date.now() - (f.lastSeen || 0)) < 10 * 60 * 1000;
+
+        let statusBadge = `<span class="inline-flex items-center gap-1 text-xs font-bold text-slate-400 bg-slate-100 px-2.5 py-1 rounded-full"><span class="w-2 h-2 rounded-full bg-slate-400"></span>オフライン</span>`;
+        if (hasRoom) {
+          const roomLabel = f.activeRoom.status === 'playing' ? '対戦中' : 'ルーム待機中';
+          statusBadge = `<span class="inline-flex items-center gap-1 text-xs font-black text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full animate-pulse"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>${roomLabel}</span>`;
+          
+          // ホーム画面用ショートカットカード生成
+          activeRoomCardsHtml += `
+            <div class="flex items-center justify-between gap-2 bg-emerald-50 border border-emerald-200 rounded-xl p-2.5">
+              <div class="min-w-0">
+                <p class="text-xs font-black text-slate-900 truncate">${escapeHtml(f.nickname)} の部屋</p>
+                <p class="text-[10px] font-bold text-emerald-700">${roomLabel}（ID入力不要）</p>
+              </div>
+              <button onclick="oneTapJoinFriendRoom('${f.activeRoom.roomId}', '${f.activeRoom.password}')" class="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-2xs shrink-0 transition">
+                ワンタップ参加
+              </button>
+            </div>
+          `;
+        } else if (isOnline) {
+          statusBadge = `<span class="inline-flex items-center gap-1 text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-full"><span class="w-2 h-2 rounded-full bg-blue-500"></span>オンライン</span>`;
+        }
+
+        const joinBtn = hasRoom
+          ? `<button onclick="oneTapJoinFriendRoom('${f.activeRoom.roomId}', '${f.activeRoom.password}')" class="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-sm transition flex items-center justify-center gap-1.5">
+               <i class="fa-solid fa-bolt"></i>
+               <span>ワンタップ参加</span>
+             </button>`
+          : `<span class="text-xs font-bold text-slate-400">部屋未作成</span>`;
+
+        return `
+          <div class="bg-slate-50 rounded-2xl p-4 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div class="flex items-center gap-2 mb-1">
+                <span class="font-black text-slate-900 text-base">${escapeHtml(f.nickname)}</span>
+                ${statusBadge}
+              </div>
+              <p class="text-xs font-mono text-slate-500">コード: ${escapeHtml(f.friendCode)}</p>
+            </div>
+            <div>${joinBtn}</div>
+          </div>
+        `;
+      }).join('');
+
+      container.innerHTML = cardsHtml;
+      homeShortcut.innerHTML = activeRoomCardsHtml || `
+        <div class="text-xs text-slate-400 bg-slate-50 rounded-xl p-3 text-center border border-dashed border-slate-200">
+          現在ルームを開いているフレンドはいません
+        </div>
+      `;
+    }
+
+    // ルーム待機画面からフレンドへ招待通知を送信
+    window.sendRoomInviteToFriend = async function(targetUid) {
+      if (!currentUser || !myProfile || !currentRoomData) return;
+      const inviteId = `${currentRoomData.roomId}_${targetUid}`;
+      const inviteRef = doc(db, 'artifacts', appId, 'public', 'data', 'invites', inviteId);
+      await setDoc(inviteRef, {
+        fromUid: currentUser.uid,
+        fromName: myProfile.nickname,
+        toUid: targetUid,
+        roomId: currentRoomData.roomId,
+        password: currentRoomData.password,
+        status: 'pending',
+        createdAt: Date.now()
+      });
+      const fName = allPlayersMap[targetUid]?.nickname || 'フレンド';
+      showToast(`${fName}さんにルーム招待を送りました！`);
+    };
+
+    // リアルタイム招待バナーを描画
+    function renderInviteBanners() {
+      const container = document.getElementById('invite-banner-container');
+      if (incomingInvites.length === 0) {
+        container.innerHTML = '';
+        return;
+      }
+
+      container.innerHTML = incomingInvites.slice(0, 2).map(inv => `
+        <div class="pointer-events-auto animate-slide-down bg-slate-900/95 backdrop-blur-md text-white rounded-2xl p-3.5 sm:p-4 shadow-2xl border border-indigo-400/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-indigo-500 text-white flex items-center justify-center text-lg shrink-0 animate-bounce">
+              <i class="fa-solid fa-envelope-open-text"></i>
+            </div>
+            <div>
+              <p class="text-xs sm:text-sm font-black">
+                <span class="text-amber-300">${escapeHtml(inv.fromName)}</span> さんからルーム招待が届いています！
+              </p>
+              <p class="text-[11px] text-slate-300">ID・パスワード入力不要でそのまま対戦部屋に入れます</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 justify-end shrink-0">
+            <button onclick="acceptInviteAndJoin('${inv.id}', '${inv.roomId}', '${inv.password}')" class="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm shadow-md transition flex items-center gap-1.5">
+              <i class="fa-solid fa-bolt"></i>
+              <span>ワンタップで入室</span>
+            </button>
+            <button onclick="dismissInvite('${inv.id}')" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 flex items-center justify-center transition" title="閉じる">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    window.dismissInvite = async function(inviteId) {
+      if (!currentUser) return;
+      const invRef = doc(db, 'artifacts', appId, 'public', 'data', 'invites', inviteId);
+      await updateDoc(invRef, { status: 'dismissed' });
+    };
+
+    window.acceptInviteAndJoin = async function(inviteId, roomId, password) {
+      await dismissInvite(inviteId);
+      await oneTapJoinFriendRoom(roomId, password);
+    };
+
+    // ワンタップ入室（ID・パスワード自動適用）
+    window.oneTapJoinFriendRoom = async function(roomId, password) {
+      if (isSoloMode) {
+        isSoloMode = false;
+      }
+      if (currentRoomId && currentRoomId !== roomId) {
+        await leaveCurrentRoom();
+      }
+      executeSwitchTab('play');
+      await connectToRoom(roomId, password);
+    };
+
+    /**
+     * =========================================================================
+     * 4. ルーム作成・4桁ID＆パスワード入室・ロビー同期
+     * =========================================================================
+     */
+    window.randomizeHostPasswordInput = function() {
+      document.getElementById('host-custom-password').value = generate4DigitNumber();
+    };
+
+    // ホストが新規ルームを作成
+    window.createRoom = async function() {
+      if (!currentUser || !myProfile) return;
+
+      const cat = document.getElementById('host-category-select').value;
+      const pool = cat === 'ALL' ? [...userQuestions] : userQuestions.filter(q => (q.category || '一般') === cat);
+      if (pool.length === 0) {
+        showToast('選択したカテゴリーに問題がありません。「問題を作る」から作成してください', 'error');
+        return;
+      }
+
+      let passInput = document.getElementById('host-custom-password').value.trim();
+      if (!/^\d{4}$/.test(passInput)) {
+        passInput = generate4DigitNumber();
+      }
+      const roomId = generate4DigitNumber();
+      const hostParticipates = document.getElementById('host-participate-check').checked;
+
+      // 出題順をシャッフル
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+
+      const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+      const roomPayload = {
+        roomId,
+        password: passInput,
+        hostUid: currentUser.uid,
+        hostName: myProfile.nickname,
+        hostParticipates,
+        status: 'waiting',
+        players: {
+          [currentUser.uid]: {
+            uid: currentUser.uid,
+            name: myProfile.nickname,
+            friendCode: myProfile.friendCode,
+            score: 0,
+            isHost: true,
+            isContestant: hostParticipates
+          }
+        },
+        questions: pool,
+        currentQIndex: 0,
+        phase: 'buzzer',
+        questionStartTime: Date.now(),
+        revealedAll: false,
+        buzzerWinner: null,
+        lockedOutUids: [],
+        currentSubmission: null,
+        aiGradeResult: null,
+        updatedAt: Date.now()
+      };
+
+      await setDoc(roomRef, roomPayload);
+
+      // 自分のプロフィールにactiveRoomを登録（フレンドがワンタップ参加できるようにする）
+      const playerRef = doc(db, 'artifacts', appId, 'public', 'data', 'players', currentUser.uid);
+      await updateDoc(playerRef, {
+        activeRoom: {
+          roomId,
+          password: passInput,
+          status: 'waiting',
+          updatedAt: Date.now()
+        },
+        lastSeen: Date.now()
+      });
+
+      subscribeToRoom(roomId);
+      showToast(`ルーム（ID: ${roomId}）を作成しました！`);
+    };
+
+    // ゲストが4桁ID＆4桁パスワードで入室
+    window.joinRoomByCredentials = async function() {
+      const roomId = document.getElementById('join-room-id').value.trim();
+      const password = document.getElementById('join-room-pass').value.trim();
+
+      if (!/^\d{4}$/.test(roomId) || !/^\d{4}$/.test(password)) {
+        showToast('4桁のルームIDと4桁のパスワードを入力してください', 'error');
+        return;
+      }
+
+      await connectToRoom(roomId, password);
+    };
+
+    // ルーム接続共通処理
+    async function connectToRoom(roomId, password) {
+      if (!currentUser || !myProfile) return;
+      const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+      const snap = await getDoc(roomRef);
+
+      if (!snap.exists()) {
+        showToast('指定されたルームが見つかりません（すでに解散された可能性があります）', 'error');
+        return;
+      }
+
+      const data = snap.data();
+      if (data.password !== password) {
+        showToast('パスワードが一致しません', 'error');
+        return;
+      }
+
+      // プレイヤーとしてルームへ登録
+      if (!data.players || !data.players[currentUser.uid]) {
+        await updateDoc(roomRef, {
+          [`players.${currentUser.uid}`]: {
+            uid: currentUser.uid,
+            name: myProfile.nickname,
+            friendCode: myProfile.friendCode,
+            score: 0,
+            isHost: false,
+            isContestant: true
+          },
+          updatedAt: Date.now()
+        });
+      }
+
+      subscribeToRoom(roomId);
+      showToast(`ルーム ${roomId} に入室しました！`);
+    }
+
+    // ルームドキュメントのリアルタイム監視開始
+    function subscribeToRoom(roomId) {
+      if (roomUnsubscribe) {
+        roomUnsubscribe();
+      }
+      currentRoomId = roomId;
+      isSoloMode = false;
+
+      const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+      roomUnsubscribe = onSnapshot(roomRef, (snap) => {
+        if (!snap.exists()) {
+          showToast('ホストがルームを終了しました', 'error');
+          cleanupLocalRoomState();
+          return;
+        }
+        currentRoomData = snap.data();
+        renderRoomState();
+      }, (err) => {
+        console.error('Room listener error:', err);
+      });
+    }
+
+    // ホストのactiveRoomステータスをクリア
+    async function clearMyActiveRoomStatus() {
+      if (!currentUser) return;
+      try {
+        const playerRef = doc(db, 'artifacts', appId, 'public', 'data', 'players', currentUser.uid);
+        await updateDoc(playerRef, { activeRoom: null });
+      } catch (e) {}
+    }
+
+    // 退室処理
+    window.leaveCurrentRoom = async function() {
+      if (isSoloMode) {
+        isSoloMode = false;
+        cleanupLocalRoomState();
+        return;
+      }
+      if (!currentRoomId || !currentUser) {
+        cleanupLocalRoomState();
+        return;
+      }
+
+      const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomId);
+      if (currentRoomData && currentRoomData.hostUid === currentUser.uid) {
+        // ホストが退室する場合はルームを削除＆activeRoom解除
+        await clearMyActiveRoomStatus();
+        await deleteDoc(roomRef);
+      } else {
+        // ゲストが退室する場合は自分のプレイヤーエントリを削除
+        const updatedPlayers = { ...(currentRoomData?.players || {}) };
+        delete updatedPlayers[currentUser.uid];
+        await updateDoc(roomRef, { players: updatedPlayers });
+      }
+
+      cleanupLocalRoomState();
+      showToast('ルームから退室しました');
+    };
+
+    function cleanupLocalRoomState() {
+      if (roomUnsubscribe) {
+        roomUnsubscribe();
+        roomUnsubscribe = null;
+      }
+      currentRoomId = null;
+      currentRoomData = null;
+      lastRenderedQKey = '';
+      clearInterval(typewriterTimer);
+
+      document.getElementById('play-lobby-screen').classList.add('hidden');
+      document.getElementById('play-active-screen').classList.add('hidden');
+      document.getElementById('play-result-screen').classList.add('hidden');
+      document.getElementById('play-home-screen').classList.remove('hidden');
+    }
+
+    // ルーム状態に応じた画面切替ディスパッチャ
+    function renderRoomState() {
+      if (!currentRoomData) return;
+
+      document.getElementById('play-home-screen').classList.add('hidden');
+
+      if (currentRoomData.status === 'waiting') {
+        document.getElementById('play-active-screen').classList.add('hidden');
+        document.getElementById('play-result-screen').classList.add('hidden');
+        document.getElementById('play-lobby-screen').classList.remove('hidden');
+        renderLobbyUI();
+      } else if (currentRoomData.status === 'playing') {
+        document.getElementById('play-lobby-screen').classList.add('hidden');
+        document.getElementById('play-result-screen').classList.add('hidden');
+        document.getElementById('play-active-screen').classList.remove('hidden');
+        renderMultiplayerGameplay();
+      } else if (currentRoomData.status === 'finished') {
+        document.getElementById('play-lobby-screen').classList.add('hidden');
+        document.getElementById('play-active-screen').classList.add('hidden');
+        document.getElementById('play-result-screen').classList.remove('hidden');
+        renderMultiplayerResult();
+      }
+    }
+
+    // 待機ロビーのUI描画
+    function renderLobbyUI() {
+      if (!currentRoomData || !myProfile) return;
+      const isHost = currentRoomData.hostUid === currentUser.uid;
+
+      document.getElementById('lobby-room-id').textContent = currentRoomData.roomId;
+      document.getElementById('lobby-room-pass').textContent = currentRoomData.password;
+
+      const startBtn = document.getElementById('btn-host-start-match');
+      const guestWaitMsg = document.getElementById('lobby-guest-wait-msg');
+      const roleBadge = document.getElementById('lobby-role-badge');
+
+      if (isHost) {
+        startBtn.classList.remove('hidden');
+        guestWaitMsg.classList.add('hidden');
+        roleBadge.textContent = currentRoomData.hostParticipates ? 'ホスト（解答参加）' : 'ホスト（出題・進行専任）';
+      } else {
+        startBtn.classList.add('hidden');
+        guestWaitMsg.classList.remove('hidden');
+        roleBadge.textContent = 'ゲスト参加者';
+      }
+
+      // 参加者リスト描画
+      const players = Object.values(currentRoomData.players || {});
+      document.getElementById('lobby-player-count').textContent = players.length;
+
+      const myFriends = myProfile.friends || [];
+      const playersListEl = document.getElementById('lobby-players-list');
+      playersListEl.innerHTML = players.map(p => {
+        const isMe = p.uid === currentUser.uid;
+        const isAlreadyFriend = myFriends.includes(p.uid);
+        let actionHtml = '';
+        if (isMe) {
+          actionHtml = `<span class="text-xs font-extrabold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg">あなた</span>`;
+        } else if (isAlreadyFriend) {
+          actionHtml = `<span class="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg"><i class="fa-solid fa-check mr-1"></i>フレンド</span>`;
+        } else {
+          actionHtml = `<button onclick="sendFriendRequestToUid('${p.uid}')" class="px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-extrabold transition">
+            <i class="fa-solid fa-user-plus mr-1"></i>フレンド申請
+          </button>`;
+        }
+
+        return `
+          <div class="flex items-center justify-between gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+            <div class="flex items-center gap-2.5">
+              <div class="w-9 h-9 rounded-xl ${p.isHost ? 'bg-amber-100 text-amber-600' : 'bg-blue-100 text-blue-600'} flex items-center justify-center font-black text-sm">
+                <i class="fa-solid ${p.isHost ? 'fa-crown' : 'fa-user'}"></i>
+              </div>
+              <div>
+                <p class="text-sm font-black text-slate-900">${escapeHtml(p.name)}</p>
+                <p class="text-[11px] text-slate-500">${p.isHost ? (p.isContestant ? 'ホスト・解答者' : 'ホスト・進行役') : '参加者'}</p>
+              </div>
+            </div>
+            ${actionHtml}
+          </div>
+        `;
+      }).join('');
+
+      // フレンド招待パネル描画
+      const inviteListEl = document.getElementById('lobby-invite-friends-list');
+      if (myFriends.length === 0) {
+        inviteListEl.innerHTML = `
+          <div class="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+            <p class="text-xs font-bold text-slate-500 mb-2">登録済みのフレンドがいません</p>
+            <button onclick="switchTab('friends')" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold">
+              フレンドタブでコード登録する
+            </button>
+          </div>
+        `;
+      } else {
+        inviteListEl.innerHTML = myFriends.map(fUid => {
+          const f = allPlayersMap[fUid];
+          if (!f) return '';
+          const alreadyInRoom = Boolean(currentRoomData.players && currentRoomData.players[fUid]);
+          return `
+            <div class="flex items-center justify-between gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+              <div>
+                <p class="text-sm font-black text-slate-900">${escapeHtml(f.nickname)}</p>
+                <p class="text-[11px] font-mono text-slate-400">コード: ${escapeHtml(f.friendCode)}</p>
+              </div>
+              ${alreadyInRoom
+                ? `<span class="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl">入室済み</span>`
+                : `<button onclick="sendRoomInviteToFriend('${fUid}')" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-2xs transition flex items-center gap-1.5">
+                     <i class="fa-solid fa-paper-plane"></i>
+                     <span>招待を送る</span>
+                   </button>`
+              }
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    // ホストが対戦を開始
+    window.hostStartMatch = async function() {
+      if (!currentRoomData || currentRoomData.hostUid !== currentUser.uid) return;
+      const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomData.roomId);
+      const playerRef = doc(db, 'artifacts', appId, 'public', 'data', 'players', currentUser.uid);
+
+      await updateDoc(roomRef, {
+        status: 'playing',
+        currentQIndex: 0,
+        phase: 'buzzer',
+        questionStartTime: Date.now(),
+        revealedAll: false,
+        buzzerWinner: null,
+        lockedOutUids: [],
+        currentSubmission: null,
+        aiGradeResult: null
+      });
+
+      await updateDoc(playerRef, {
+        'activeRoom.status': 'playing',
+        lastSeen: Date.now()
+      });
+    };
+
+    /**
+     * =========================================================================
+     * 5. リアルタイム早押し＆ゲーム進行（マルチ＆ソロ共通）
+     * =========================================================================
+     */
+    function renderMultiplayerGameplay() {
+      const r = currentRoomData;
+      const q = r.questions[r.currentQIndex];
+      if (!q) return;
+
+      const isHost = r.hostUid === currentUser.uid;
+      const myPlayer = r.players[currentUser.uid];
+      const amIContestant = myPlayer ? myPlayer.isContestant : true;
+
+      document.getElementById('q-current-num').textContent = r.currentQIndex + 1;
+      document.getElementById('q-total-num').textContent = r.questions.length;
+      document.getElementById('q-category-badge').textContent = q.category || '一般';
+      document.getElementById('game-mode-badge').textContent = `ルーム ${r.roomId}`;
+
+      // スコアボード描画
+      const sbEl = document.getElementById('live-scoreboard');
+      const contestants = Object.values(r.players || {}).filter(p => p.isContestant);
+      sbEl.innerHTML = contestants.map(p => {
+        const isWinner = r.buzzerWinner && r.buzzerWinner.uid === p.uid;
+        return `
+          <div class="shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-xl border ${isWinner ? 'bg-rose-50 border-rose-400 ring-2 ring-rose-200' : 'bg-slate-50 border-slate-200'}">
+            <span class="text-xs font-extrabold text-slate-800">${escapeHtml(p.name)}</span>
+            <span class="text-sm font-black text-blue-600">${p.score}pt</span>
+          </div>
+        `;
+      }).join('');
+
+      // 画像表示
+      const imgCont = document.getElementById('question-image-container');
+      const imgDisp = document.getElementById('question-image-display');
+      if (q.image) {
+        imgDisp.src = q.image;
+        imgCont.classList.remove('hidden');
+      } else {
+        imgCont.classList.add('hidden');
+      }
+
+      // 問題文表示（早押しフェーズ中は1文字ずつ演出、解答中・採点中はストップ/全文）
+      const qKey = `${r.currentQIndex}_${r.questionStartTime}`;
+      const textArea = document.getElementById('question-text-area');
+      const readingBadge = document.getElementById('reading-status');
+      const revealAllBtn = document.getElementById('btn-host-reveal-all');
+
+      if (r.phase === 'grading' || r.revealedAll) {
+        clearInterval(typewriterTimer);
+        textArea.textContent = q.question;
+        readingBadge.classList.add('hidden');
+        revealAllBtn.classList.add('hidden');
+      } else if (r.phase === 'input') {
+        // 早押しが押された瞬間は読み上げ停止
+        clearInterval(typewriterTimer);
+        readingBadge.classList.add('hidden');
+        revealAllBtn.classList.add('hidden');
+      } else if (r.phase === 'buzzer' && lastRenderedQKey !== qKey) {
+        lastRenderedQKey = qKey;
+        startTypewriterReveal(q.question);
+      }
+
+      if (isHost && r.phase === 'buzzer' && !r.revealedAll) {
+        revealAllBtn.classList.remove('hidden');
+      } else {
+        revealAllBtn.classList.add('hidden');
+      }
+
+      // フェーズ別UI切替
+      document.getElementById('phase-buzzer').classList.add('hidden');
+      document.getElementById('phase-input').classList.add('hidden');
+      document.getElementById('phase-grading').classList.add('hidden');
+
+      if (r.phase === 'buzzer') {
+        document.getElementById('phase-buzzer').classList.remove('hidden');
+        const buzzerBtn = document.getElementById('btn-buzzer');
+        const instText = document.getElementById('buzzer-instruction-text');
+        const skipBtn = document.getElementById('btn-skip-question');
+
+        const isLockedOut = (r.lockedOutUids || []).includes(currentUser.uid);
+
+        if (!amIContestant) {
+          buzzerBtn.disabled = true;
+          buzzerBtn.classList.remove('buzzer-pulse');
+          instText.textContent = 'あなたは進行役ホストです（プレイヤーの早押しを待っています）';
+        } else if (isLockedOut) {
+          buzzerBtn.disabled = true;
+          buzzerBtn.classList.remove('buzzer-pulse');
+          instText.textContent = 'この問題はすでに誤答したため解答権がありません';
+        } else {
+          buzzerBtn.disabled = false;
+          buzzerBtn.classList.add('buzzer-pulse');
+          instText.textContent = '答えが分かったら早押しボタンをタップ！（スペースキーでも反応）';
+        }
+
+        skipBtn.classList.toggle('hidden', !isHost);
+      } else if (r.phase === 'input') {
+        document.getElementById('phase-input').classList.remove('hidden');
+        const isMyTurn = r.buzzerWinner && r.buzzerWinner.uid === currentUser.uid;
+        const myPanel = document.getElementById('my-input-panel');
+        const otherPanel = document.getElementById('other-answering-panel');
+
+        if (isMyTurn) {
+          if (myPanel.classList.contains('hidden')) {
+            myPanel.classList.remove('hidden');
+            otherPanel.classList.add('hidden');
+            document.getElementById('answer-text-input').value = '';
+            switchInputMethod(currentInputMethod);
+            setTimeout(() => {
+              resizeCanvas(false);
+              clearCanvas();
+            }, 40);
+          }
+        } else {
+          myPanel.classList.add('hidden');
+          otherPanel.classList.remove('hidden');
+          document.getElementById('answering-player-name').textContent = r.buzzerWinner?.name || 'プレイヤー';
+        }
+      } else if (r.phase === 'grading') {
+        document.getElementById('phase-grading').classList.remove('hidden');
+        renderGradingPhaseUI(q, r.currentSubmission, r.aiGradeResult, isHost, false);
+      }
+    }
+
+    function startTypewriterReveal(fullText) {
+      clearInterval(typewriterTimer);
+      const textArea = document.getElementById('question-text-area');
+      const readingBadge = document.getElementById('reading-status');
+      textArea.textContent = '';
+      readingBadge.classList.remove('hidden');
+
+      let idx = 0;
+      typewriterTimer = setInterval(() => {
+        if (idx < fullText.length) {
+          textArea.textContent += fullText[idx];
+          idx++;
+        } else {
+          clearInterval(typewriterTimer);
+          readingBadge.classList.add('hidden');
+        }
+      }, 75);
+    }
+
+    window.hostRevealFullQuestion = async function() {
+      if (!currentRoomData || currentRoomData.hostUid !== currentUser.uid) return;
+      const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomData.roomId);
+      await updateDoc(roomRef, { revealedAll: true });
+    };
+
+    // 早押しボタン押下（トランザクションで最速1名にロック）
+    window.triggerBuzzer = async function() {
+      getAudioContext();
+
+      if (isSoloMode) {
+        if (!soloBuzzerActive) return;
+        soloBuzzerActive = false;
+        clearInterval(typewriterTimer);
+        document.getElementById('reading-status').classList.add('hidden');
+        playBuzzerSound();
+
+        document.getElementById('phase-buzzer').classList.add('hidden');
+        document.getElementById('phase-input').classList.remove('hidden');
+        document.getElementById('my-input-panel').classList.remove('hidden');
+        document.getElementById('other-answering-panel').classList.add('hidden');
+        document.getElementById('answer-text-input').value = '';
+        switchInputMethod(currentInputMethod);
+        setTimeout(() => {
+          resizeCanvas(false);
+          clearCanvas();
+        }, 40);
+        return;
+      }
+
+      if (!currentRoomData || currentRoomData.phase !== 'buzzer') return;
+      if ((currentRoomData.lockedOutUids || []).includes(currentUser.uid)) return;
+
+      const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomData.roomId);
+      try {
+        const won = await runTransaction(db, async (tx) => {
+          const snap = await tx.get(roomRef);
+          if (!snap.exists()) return false;
+          const data = snap.data();
+          if (data.phase !== 'buzzer' || data.buzzerWinner) {
+            return false; // 他の人が一瞬早く押した
+          }
+          tx.update(roomRef, {
+            phase: 'input',
+            buzzerWinner: {
+              uid: currentUser.uid,
+              name: myProfile.nickname,
+              timestamp: Date.now()
+            }
+          });
+          return true;
+        });
+
+        if (won) {
+          playBuzzerSound();
+        } else {
+          showToast('他のプレイヤーが一瞬早く押しました！', 'error');
+        }
+      } catch (e) {
+        console.error('Buzzer transaction failed:', e);
+      }
+    };
+
+    // スペースキーで早押し対応
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && !document.getElementById('phase-buzzer').classList.contains('hidden')) {
+        const btn = document.getElementById('btn-buzzer');
+        if (!btn.disabled && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+          e.preventDefault();
+          window.triggerBuzzer();
+        }
+      }
+    });
+
+    /**
+     * =========================================================================
+     * 6. Gemini AI マルチモーダル記述採点エンジン
+     * =========================================================================
+     */
+    window.submitAnswerForAIGrading = async function() {
+      const q = isSoloMode
+        ? soloQuestions[soloIndex]
+        : currentRoomData.questions[currentRoomData.currentQIndex];
+
+      let submission = {
+        uid: currentUser.uid,
+        name: myProfile.nickname,
+        type: currentInputMethod,
+        text: '',
+        imageDataUrl: ''
+      };
+
+      if (currentInputMethod === 'draw') {
+        // 透明背景ではなく白背景に合成したPNGを生成してAIが文字を読み取りやすくする
+        submission.imageDataUrl = getWhiteBackgroundCanvasDataUrl();
+      } else {
+        submission.text = document.getElementById('answer-text-input').value.trim() || '（未入力）';
+      }
+
+      if (isSoloMode) {
+        soloSubmission = submission;
+        soloAiResult = null;
+        document.getElementById('question-text-area').textContent = q.question;
+        document.getElementById('phase-input').classList.add('hidden');
+        document.getElementById('phase-grading').classList.remove('hidden');
+        renderGradingPhaseUI(q, soloSubmission, null, true, true);
+
+        const aiResult = await callGeminiAIGrader(q, submission);
+        soloAiResult = aiResult;
+        renderGradingPhaseUI(q, soloSubmission, soloAiResult, true, true);
+        return;
+      }
+
+      // マルチプレイ：先に提出データをFirestoreに書き込み、AI採点を実行
+      const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomData.roomId);
+      await updateDoc(roomRef, {
+        phase: 'grading',
+        revealedAll: true,
+        currentSubmission: submission,
+        aiGradeResult: null
+      });
+
+      const aiResult = await callGeminiAIGrader(q, submission);
+      await updateDoc(roomRef, {
+        aiGradeResult: aiResult
+      });
+    };
+
+    // Gemini API (`gemini-3-flash-preview`) 呼び出し＆指数バックオフリトライ
+    async function callGeminiAIGrader(questionObj, submission) {
+      const apiKey = "";
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+      const keywords = Array.isArray(questionObj.keywords) ? questionObj.keywords : [];
+      const promptText = `あなたは優秀な教育・クイズの採点AIです。以下の記述問題に対する受験者の解答を厳密かつ公平に採点してください。
+
+【問題文】
+${questionObj.question}
+
+【模範解答】
+${questionObj.answer}
+
+【必須語句（キーワード）】
+${keywords.length > 0 ? keywords.join(', ') : '（指定なし）'}
+
+【採点基準・補足】
+${questionObj.rubric || '模範解答の核心を捉えており、質問の意図に対して的を射た説明ができているかを評価してください。'}
+
+【受験者の入力形式】
+${submission.type === 'draw' ? '手書き画像（添付画像内の手書き文字・数式を読み取って採点してください）' : `テキスト入力：「${submission.text}」`}
+
+以下のJSON形式で出力してください：
+- score: 0〜100の整数（必須語句の使用と、質問に対して的を射た回答になっているかを総合評価）
+- keywordChecks: 必須語句リストの各語句について、解答内で適切に使われているか（または同義・正しく記述されているか）の真偽値配列
+- hitsMark: 質問の意図に対して的を射た回答ができているか（boolean）
+- feedback: 受験者向けの分かりやすい講評（良い点と改善点を2〜3文で簡潔に）`;
+
+      const parts = [{ text: promptText }];
+      if (submission.type === 'draw' && submission.imageDataUrl) {
+        const base64Data = submission.imageDataUrl.split(',')[1];
+        parts.push({
+          inlineData: {
+            mimeType: 'image/png',
+            data: base64Data
+          }
+        });
+      }
+
+      const payload = {
+        contents: [{ role: 'user', parts }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              score: { type: 'INTEGER' },
+              keywordChecks: {
+                type: 'ARRAY',
+                items: {
+                  type: 'OBJECT',
+                  properties: {
+                    keyword: { type: 'STRING' },
+                    used: { type: 'BOOLEAN' }
+                  },
+                  required: ['keyword', 'used']
+                }
+              },
+              hitsMark: { type: 'BOOLEAN' },
+              feedback: { type: 'STRING' }
+            },
+            required: ['score', 'keywordChecks', 'hitsMark', 'feedback']
+          }
+        }
+      };
+
+      const delays = [1000, 2000, 4000, 8000];
+      for (let attempt = 0; attempt <= delays.length; attempt++) {
+        try {
+          const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const result = await response.json();
+          const rawJson = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!rawJson) throw new Error('Empty response');
+          return JSON.parse(rawJson);
+        } catch (err) {
+          if (attempt === delays.length) {
+            return {
+              score: 50,
+              keywordChecks: keywords.map(k => ({ keyword: k, used: false })),
+              hitsMark: true,
+              feedback: 'AI採点の通信が混雑していたため仮採点（50点）を表示しています。模範解答と見比べてホストが得点を調整してください。'
+            };
+          }
+          await new Promise(res => setTimeout(res, delays[attempt]));
+        }
+      }
+    }
+
+    // AI採点フェーズのUI描画
+    function renderGradingPhaseUI(q, submission, aiResult, isHost, soloFlag) {
+      document.getElementById('grading-respondent-badge').textContent = `解答者: ${submission?.name || '---'}`;
+      document.getElementById('graded-model-answer').textContent = q.answer;
+
+      const drawBox = document.getElementById('graded-user-draw-box');
+      const textBox = document.getElementById('graded-user-text-box');
+      if (submission?.type === 'draw') {
+        drawBox.classList.remove('hidden');
+        textBox.classList.add('hidden');
+        document.getElementById('graded-user-draw-img').src = submission.imageDataUrl;
+      } else {
+        drawBox.classList.add('hidden');
+        textBox.classList.remove('hidden');
+        textBox.textContent = submission?.text || '（未入力）';
+      }
+
+      const loader = document.getElementById('ai-grading-loader');
+      const content = document.getElementById('ai-grading-content');
+
+      if (!aiResult) {
+        loader.classList.remove('hidden');
+        content.classList.add('hidden');
+        return;
+      }
+
+      loader.classList.add('hidden');
+      content.classList.remove('hidden');
+
+      document.getElementById('ai-score-number').textContent = aiResult.score;
+      document.getElementById('host-adjust-score').value = aiResult.score;
+
+      const markBadge = document.getElementById('ai-hits-mark-badge');
+      if (aiResult.hitsMark) {
+        markBadge.className = 'px-3.5 py-1.5 rounded-xl text-xs font-black bg-emerald-100 text-emerald-700';
+        markBadge.innerHTML = '<i class="fa-solid fa-bullseye mr-1"></i>的を射た回答です！';
+        playCorrectSound();
+      } else {
+        markBadge.className = 'px-3.5 py-1.5 rounded-xl text-xs font-black bg-amber-100 text-amber-800';
+        markBadge.innerHTML = '<i class="fa-solid fa-circle-exclamation mr-1"></i>もう一歩！核心が不足しています';
+        playWrongSound();
+      }
+
+      // 必須語句バッジ描画
+      const kwContainer = document.getElementById('ai-keywords-badges');
+      const checks = aiResult.keywordChecks || [];
+      if (checks.length === 0) {
+        kwContainer.innerHTML = '<span class="text-xs text-slate-400">必須語句の指定なし</span>';
+      } else {
+        kwContainer.innerHTML = checks.map(c => c.used
+          ? `<span class="inline-flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200"><i class="fa-solid fa-check"></i>${escapeHtml(c.keyword)}</span>`
+          : `<span class="inline-flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-bold bg-rose-50 text-rose-600 border border-rose-200"><i class="fa-solid fa-xmark"></i>${escapeHtml(c.keyword)}（未使用）</span>`
+        ).join('');
+      }
+
+      document.getElementById('ai-feedback-text').textContent = aiResult.feedback;
+
+      // アクションバー制御
+      const hostCtrl = document.getElementById('host-grading-controls');
+      const guestWait = document.getElementById('guest-grading-wait');
+      const passBtn = document.getElementById('btn-pass-buzzer');
+
+      if (soloFlag) {
+        hostCtrl.classList.remove('hidden');
+        guestWait.classList.add('hidden');
+        passBtn.classList.add('hidden');
+      } else if (isHost) {
+        hostCtrl.classList.remove('hidden');
+        guestWait.classList.add('hidden');
+        passBtn.classList.remove('hidden');
+      } else {
+        hostCtrl.classList.add('hidden');
+        guestWait.classList.remove('hidden');
+      }
+    }
+
+    // ホストが得点を確定して次の問題へ進む（ソロモード兼用）
+    window.hostConfirmAndNext = async function() {
+      const awarded = Math.max(0, Math.min(100, parseInt(document.getElementById('host-adjust-score').value, 10) || 0));
+
+      if (isSoloMode) {
+        soloScore += awarded;
+        soloRankingHistory.push({
+          question: soloQuestions[soloIndex].question,
+          score: awarded,
+          feedback: soloAiResult?.feedback || ''
+        });
+        soloIndex++;
+        if (soloIndex < soloQuestions.length) {
+          loadSoloQuestion();
+        } else {
+          showSoloResult();
+        }
+        return;
+      }
+
+      if (!currentRoomData || currentRoomData.hostUid !== currentUser.uid) return;
+      const r = currentRoomData;
+      const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', r.roomId);
+
+      const winnerUid = r.currentSubmission?.uid || r.buzzerWinner?.uid;
+      const updatedPlayers = { ...(r.players || {}) };
+      if (winnerUid && updatedPlayers[winnerUid]) {
+        updatedPlayers[winnerUid].score = (updatedPlayers[winnerUid].score || 0) + awarded;
+      }
+
+      const nextIdx = r.currentQIndex + 1;
+      if (nextIdx < r.questions.length) {
+        await updateDoc(roomRef, {
+          players: updatedPlayers,
+          currentQIndex: nextIdx,
+          phase: 'buzzer',
+          questionStartTime: Date.now(),
+          revealedAll: false,
+          buzzerWinner: null,
+          lockedOutUids: [],
+          currentSubmission: null,
+          aiGradeResult: null
+        });
+      } else {
+        await updateDoc(roomRef, {
+          players: updatedPlayers,
+          status: 'finished'
+        });
+        await clearMyActiveRoomStatus();
+      }
+    };
+
+    // ホストが誤答と判定し、他のプレイヤーに早押し解答権を回す
+    window.hostPassBuzzerToOthers = async function() {
+      if (!currentRoomData || currentRoomData.hostUid !== currentUser.uid) return;
+      const r = currentRoomData;
+      const wrongUid = r.currentSubmission?.uid || r.buzzerWinner?.uid;
+      const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', r.roomId);
+
+      await updateDoc(roomRef, {
+        phase: 'buzzer',
+        buzzerWinner: null,
+        currentSubmission: null,
+        aiGradeResult: null,
+        lockedOutUids: wrongUid ? arrayUnion(wrongUid) : (r.lockedOutUids || [])
+      });
+      showToast('他のプレイヤーに早押し解答権を回しました');
+    };
+
+    // 誰も分からないのでスキップして次の問題へ
+    window.skipOrNextQuestion = async function() {
+      if (isSoloMode) {
+        soloRankingHistory.push({
+          question: soloQuestions[soloIndex].question,
+          score: 0,
+          feedback: `スキップ（模範解答: ${soloQuestions[soloIndex].answer}）`
+        });
+        soloIndex++;
+        if (soloIndex < soloQuestions.length) {
+          loadSoloQuestion();
+        } else {
+          showSoloResult();
+        }
+        return;
+      }
+
+      if (!currentRoomData || currentRoomData.hostUid !== currentUser.uid) return;
+      const r = currentRoomData;
+      const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', r.roomId);
+      const nextIdx = r.currentQIndex + 1;
+
+      if (nextIdx < r.questions.length) {
+        await updateDoc(roomRef, {
+          currentQIndex: nextIdx,
+          phase: 'buzzer',
+          questionStartTime: Date.now(),
+          revealedAll: false,
+          buzzerWinner: null,
+          lockedOutUids: [],
+          currentSubmission: null,
+          aiGradeResult: null
+        });
+      } else {
+        await updateDoc(roomRef, { status: 'finished' });
+        await clearMyActiveRoomStatus();
+      }
+    };
+
+    // マルチプレイ最終リザルト表示（フレンド申請ボタン付き）
+    function renderMultiplayerResult() {
+      const r = currentRoomData;
+      if (!r) return;
+      const contestants = Object.values(r.players || {}).filter(p => p.isContestant);
+      contestants.sort((a, b) => (b.score || 0) - (a.score || 0));
+
+      const myFriends = myProfile?.friends || [];
+      const listEl = document.getElementById('result-ranking-list');
+
+      listEl.innerHTML = contestants.map((p, idx) => {
+        const medal = idx === 0 ? '🥇 1位' : idx === 1 ? '🥈 2位' : idx === 2 ? '🥉 3位' : `${idx + 1}位`;
+        const isMe = p.uid === currentUser.uid;
+        const isFriend = myFriends.includes(p.uid);
+        const friendBtn = (!isMe && !isFriend)
+          ? `<button onclick="sendFriendRequestToUid('${p.uid}')" class="px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-extrabold transition">
+               <i class="fa-solid fa-user-plus mr-1"></i>フレンド申請
+             </button>`
+          : '';
+
+        return `
+          <div class="flex items-center justify-between gap-3 p-4 rounded-2xl border ${idx === 0 ? 'bg-amber-50/70 border-amber-300' : 'bg-slate-50 border-slate-200'}">
+            <div class="flex items-center gap-3">
+              <span class="font-black text-base sm:text-lg ${idx === 0 ? 'text-amber-600' : 'text-slate-600'} w-14">${medal}</span>
+              <div>
+                <p class="font-black text-slate-900 text-base">${escapeHtml(p.name)} ${isMe ? '<span class="text-xs text-blue-600">(あなた)</span>' : ''}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-3">
+              ${friendBtn}
+              <span class="text-xl sm:text-2xl font-black text-blue-600">${p.score} <span class="text-xs font-bold">pt</span></span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    window.returnToHomeFromResult = async function() {
+      if (isSoloMode) {
+        isSoloMode = false;
+        cleanupLocalRoomState();
+      } else {
+        await leaveCurrentRoom();
+      }
+    };
+
+    window.confirmQuitGame = function() {
+      openModal('ゲームを終了しますか？', '現在の対戦・特訓を終了してホーム画面に戻ります。', async () => {
+        if (isSoloMode) {
+          isSoloMode = false;
+          cleanupLocalRoomState();
+        } else {
+          await leaveCurrentRoom();
+        }
+      });
+    };
+
+    /**
+     * =========================================================================
+     * 7. ソロAI特訓モード
+     * =========================================================================
+     */
+    window.startSoloPractice = function() {
+      const cat = document.getElementById('solo-category-select').value;
+      soloRevealMode = document.getElementById('solo-reveal-select').value;
+      const pool = cat === 'ALL' ? [...userQuestions] : userQuestions.filter(q => (q.category || '一般') === cat);
+
+      if (pool.length === 0) {
+        showToast('出題できる問題がありません。問題を作成してください', 'error');
+        return;
+      }
+
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+
+      getAudioContext();
+      isSoloMode = true;
+      soloQuestions = pool;
+      soloIndex = 0;
+      soloScore = 0;
+      soloRankingHistory = [];
+
+      document.getElementById('play-home-screen').classList.add('hidden');
+      document.getElementById('play-lobby-screen').classList.add('hidden');
+      document.getElementById('play-result-screen').classList.add('hidden');
+      document.getElementById('play-active-screen').classList.remove('hidden');
+
+      loadSoloQuestion();
+    };
+
+    function loadSoloQuestion() {
+      const q = soloQuestions[soloIndex];
+      soloBuzzerActive = true;
+
+      document.getElementById('q-current-num').textContent = soloIndex + 1;
+      document.getElementById('q-total-num').textContent = soloQuestions.length;
+      document.getElementById('q-category-badge').textContent = q.category || '一般';
+      document.getElementById('game-mode-badge').textContent = 'ソロAI特訓';
+
+      document.getElementById('live-scoreboard').innerHTML = `
+        <div class="px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-xs font-black text-blue-700">
+          現在のAI採点累計: <span class="text-base">${soloScore}</span> pt
+        </div>
+      `;
+
+      const imgCont = document.getElementById('question-image-container');
+      const imgDisp = document.getElementById('question-image-display');
+      if (q.image) {
+        imgDisp.src = q.image;
+        imgCont.classList.remove('hidden');
+      } else {
+        imgCont.classList.add('hidden');
+      }
+
+      document.getElementById('phase-buzzer').classList.remove('hidden');
+      document.getElementById('phase-input').classList.add('hidden');
+      document.getElementById('phase-grading').classList.add('hidden');
+      document.getElementById('btn-host-reveal-all').classList.add('hidden');
+      document.getElementById('btn-skip-question').classList.remove('hidden');
+
+      const btn = document.getElementById('btn-buzzer');
+      btn.disabled = false;
+      btn.classList.add('buzzer-pulse');
+
+      if (soloRevealMode === 'instant') {
+        clearInterval(typewriterTimer);
+        document.getElementById('question-text-area').textContent = q.question;
+        document.getElementById('reading-status').classList.add('hidden');
+      } else {
+        startTypewriterReveal(q.question);
+      }
+    }
+
+    function showSoloResult() {
+      document.getElementById('play-active-screen').classList.add('hidden');
+      document.getElementById('play-result-screen').classList.remove('hidden');
+
+      const listEl = document.getElementById('result-ranking-list');
+      listEl.innerHTML = `
+        <div class="bg-blue-50 rounded-2xl p-5 border border-blue-200 text-center mb-4">
+          <p class="text-xs font-bold text-blue-600">ソロAI特訓 合計スコア</p>
+          <p class="text-4xl font-black text-blue-700 mt-1">${soloScore} <span class="text-base font-bold">/ ${soloQuestions.length * 100} pt</span></p>
+        </div>
+        ${soloRankingHistory.map((item, i) => `
+          <div class="bg-slate-50 rounded-2xl p-4 border border-slate-200">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-xs font-extrabold text-slate-500">第${i + 1}問</span>
+              <span class="text-sm font-black text-indigo-600">${item.score} / 100点</span>
+            </div>
+            <p class="text-sm font-bold text-slate-800 mb-1">${escapeHtml(item.question)}</p>
+            <p class="text-xs text-slate-600">${escapeHtml(item.feedback)}</p>
+          </div>
+        `).join('')}
+      `;
+    }
+
+    /**
+     * =========================================================================
+     * 8. HTML5 Canvas 手書きパッド（Apple Pencil / タッチ対応 & 白背景合成出力）
+     * =========================================================================
+     */
+    const canvas = document.getElementById('answer-canvas');
+    const ctx = canvas.getContext('2d');
+    let isDrawing = false;
+    let penColor = '#0f172a';
+    let penSize = 6;
+    let isEraser = false;
+    let hasDrawn = false;
+    let currentInputMethod = 'draw';
+
+    function setupCanvasEvents() {
+      canvas.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        canvas.setPointerCapture(e.pointerId);
+        isDrawing = true;
+        if (!hasDrawn) {
+          hasDrawn = true;
+          document.getElementById('canvas-placeholder').classList.add('hidden');
+        }
+        const pos = getCanvasCoords(e);
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
+        drawStroke(pos.x, pos.y, e.pressure);
+      });
+
+      canvas.addEventListener('pointermove', (e) => {
+        if (!isDrawing) return;
+        e.preventDefault();
+        const pos = getCanvasCoords(e);
+        drawStroke(pos.x, pos.y, e.pressure);
+      });
+
+      const endDraw = () => {
+        if (!isDrawing) return;
+        isDrawing = false;
+        ctx.closePath();
+      };
+      canvas.addEventListener('pointerup', endDraw);
+      canvas.addEventListener('pointercancel', endDraw);
+
+      window.addEventListener('resize', () => {
+        if (!document.getElementById('input-area-draw').classList.contains('hidden')) {
+          resizeCanvas(true);
+        }
+      });
+    }
+
+    function getCanvasCoords(e) {
+      const rect = canvas.getBoundingClientRect();
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    }
+
+    function drawStroke(x, y, pressure) {
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      if (isEraser) {
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.lineWidth = penSize * 3.5;
+      } else {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = penColor;
+        const pFactor = (pressure && pressure > 0 && pressure !== 0.5) ? (0.7 + pressure * 0.6) : 1;
+        ctx.lineWidth = penSize * pFactor;
+      }
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+    }
+
+    function resizeCanvas(preserveContent = true) {
+      const wrapper = document.getElementById('canvas-wrapper');
+      const rect = wrapper.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+
+      let tempImg = null;
+      if (preserveContent && hasDrawn) {
+        tempImg = canvas.toDataURL();
+      }
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+
+      if (tempImg) {
+        const img = new Image();
+        img.onload = () => {
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.drawImage(img, 0, 0, rect.width, rect.height);
+        };
+        img.src = tempImg;
+      }
+    }
+
+    // AIが確実に文字を認識できるよう白背景に合成したPNGを生成
+    function getWhiteBackgroundCanvasDataUrl() {
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = canvas.width;
+      exportCanvas.height = canvas.height;
+      const eCtx = exportCanvas.getContext('2d');
+      eCtx.fillStyle = '#ffffff';
+      eCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+      eCtx.drawImage(canvas, 0, 0);
+      return exportCanvas.toDataURL('image/png');
+    }
+
+    window.switchInputMethod = function(method) {
+      currentInputMethod = method;
+      const tabDraw = document.getElementById('tab-input-draw');
+      const tabType = document.getElementById('tab-input-type');
+      const areaDraw = document.getElementById('input-area-draw');
+      const areaType = document.getElementById('input-area-type');
+
+      if (method === 'draw') {
+        tabDraw.className = 'px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-1.5 bg-blue-600 text-white transition';
+        tabType.className = 'px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-1.5 text-slate-600 hover:text-slate-900 transition';
+        areaDraw.classList.remove('hidden');
+        areaType.classList.add('hidden');
+        setTimeout(() => resizeCanvas(true), 20);
+      } else {
+        tabType.className = 'px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-1.5 bg-blue-600 text-white transition';
+        tabDraw.className = 'px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-1.5 text-slate-600 hover:text-slate-900 transition';
+        areaType.classList.remove('hidden');
+        areaDraw.classList.add('hidden');
+        document.getElementById('answer-text-input').focus();
+      }
+    };
+
+    window.setPenColor = function(c) {
+      isEraser = false;
+      penColor = c;
+      updateToolButtons();
+    };
+    window.setPenSize = function(s) {
+      penSize = s;
+      updateToolButtons();
+    };
+    window.setEraser = function() {
+      isEraser = true;
+      updateToolButtons();
+    };
+    window.clearCanvas = function() {
+      const dpr = window.devicePixelRatio || 1;
+      ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+      hasDrawn = false;
+      document.getElementById('canvas-placeholder').classList.remove('hidden');
+    };
+
+    function updateToolButtons() {
+      ['color-black', 'color-red', 'color-blue'].forEach(id => {
+        document.getElementById(id).classList.remove('ring-2', 'ring-offset-2', 'ring-blue-500');
+      });
+      const eraserBtn = document.getElementById('tool-eraser');
+      eraserBtn.className = isEraser
+        ? 'px-3 py-1.5 rounded-xl bg-blue-600 text-white border border-blue-600 text-xs font-bold flex items-center gap-1 shadow-2xs transition'
+        : 'px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1 hover:bg-slate-50 transition';
+
+      if (!isEraser) {
+        if (penColor === '#0f172a') document.getElementById('color-black').classList.add('ring-2', 'ring-offset-2', 'ring-blue-500');
+        if (penColor === '#ef4444') document.getElementById('color-red').classList.add('ring-2', 'ring-offset-2', 'ring-blue-500');
+        if (penColor === '#2563eb') document.getElementById('color-blue').classList.add('ring-2', 'ring-offset-2', 'ring-blue-500');
+      }
+
+      [3, 6, 12].forEach(s => {
+        const btn = document.getElementById(`size-${s}`);
+        btn.className = s === penSize
+          ? 'w-8 h-8 rounded-xl bg-blue-100 border-2 border-blue-500 flex items-center justify-center transition'
+          : 'w-8 h-8 rounded-xl bg-white border border-slate-200 flex items-center justify-center transition';
+      });
+    }
+
+    /**
+     * =========================================================================
+     * 9. 問題作成・編集・画像添付・クラウド一覧管理
+     * =========================================================================
+     */
+    let currentUploadedImageData = '';
+
+    function setupDragAndDrop() {
+      const dropZone = document.getElementById('drop-zone');
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('border-blue-500', 'bg-blue-50');
+      });
+      dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+      });
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+          processImageFile(e.dataTransfer.files[0]);
+        }
+      });
+    }
+
+    window.handleImageUpload = function(e) {
+      if (e.target.files && e.target.files[0]) {
+        processImageFile(e.target.files[0]);
+      }
+    };
+
+    function processImageFile(file) {
+      if (!file.type.startsWith('image/')) {
+        showToast('画像ファイルを選択してください', 'error');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const MAX_W = 720;
+          const MAX_H = 540;
+          let w = img.width;
+          let h = img.height;
+          if (w > MAX_W || h > MAX_H) {
+            const ratio = Math.min(MAX_W / w, MAX_H / h);
+            w = Math.round(w * ratio);
+            h = Math.round(h * ratio);
+          }
+          const off = document.createElement('canvas');
+          off.width = w;
+          off.height = h;
+          off.getContext('2d').drawImage(img, 0, 0, w, h);
+          currentUploadedImageData = off.toDataURL('image/jpeg', 0.8);
+          showImagePreview(currentUploadedImageData);
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function showImagePreview(dataUrl) {
+      document.getElementById('image-preview').src = dataUrl;
+      document.getElementById('image-upload-prompt').classList.add('hidden');
+      document.getElementById('image-preview-box').classList.remove('hidden');
+    }
+
+    window.removeUploadedImage = function(e) {
+      if (e) e.stopPropagation();
+      currentUploadedImageData = '';
+      document.getElementById('input-image-file').value = '';
+      document.getElementById('image-preview').src = '';
+      document.getElementById('image-preview-box').classList.add('hidden');
+      document.getElementById('image-upload-prompt').classList.remove('hidden');
+    };
+
+    window.saveQuestion = async function(e) {
+      e.preventDefault();
+      if (!currentUser) return;
+
+      const editId = document.getElementById('edit-question-id').value;
+      const category = document.getElementById('input-category').value.trim() || '一般';
+      const kwRaw = document.getElementById('input-keywords').value.trim();
+      const keywords = kwRaw ? kwRaw.split(/[,、，]/).map(s => s.trim()).filter(Boolean) : [];
+      const questionText = document.getElementById('input-question').value.trim();
+      const answerText = document.getElementById('input-answer').value.trim();
+      const rubricText = document.getElementById('input-rubric').value.trim();
+
+      if (!questionText || !answerText) {
+        showToast('問題文と模範解答は必須です', 'error');
+        return;
+      }
+
+      const qId = editId || ('q-' + Date.now());
+      const qRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'questions', qId);
+      await setDoc(qRef, {
+        id: qId,
+        category,
+        keywords,
+        question: questionText,
+        image: currentUploadedImageData,
+        answer: answerText,
+        rubric: rubricText,
+        createdAt: Date.now()
+      });
+
+      showToast(editId ? '問題を更新しました！' : '新しい問題を保存しました！');
+      resetCreateForm();
+      executeSwitchTab('list');
+    };
+
+    function resetCreateForm() {
+      document.getElementById('question-form').reset();
+      document.getElementById('edit-question-id').value = '';
+      document.getElementById('form-title').textContent = '新しい記述・早押し問題を作成';
+      document.getElementById('btn-save-label').textContent = 'この問題を登録する';
+      document.getElementById('btn-cancel-edit').classList.add('hidden');
+      removeUploadedImage();
+    }
+
+    window.editQuestion = function(id) {
+      const q = userQuestions.find(item => item.id === id);
+      if (!q) return;
+
+      document.getElementById('edit-question-id').value = q.id;
+      document.getElementById('input-category').value = q.category || '';
+      document.getElementById('input-keywords').value = (q.keywords || []).join(', ');
+      document.getElementById('input-question').value = q.question;
+      document.getElementById('input-answer').value = q.answer;
+      document.getElementById('input-rubric').value = q.rubric || '';
+
+      if (q.image) {
+        currentUploadedImageData = q.image;
+        showImagePreview(q.image);
+      } else {
+        removeUploadedImage();
+      }
+
+      document.getElementById('form-title').textContent = '問題を編集';
+      document.getElementById('btn-save-label').textContent = '変更を保存する';
+      document.getElementById('btn-cancel-edit').classList.remove('hidden');
+      executeSwitchTab('create');
+    };
+
+    window.cancelEdit = function() {
+      resetCreateForm();
+      executeSwitchTab('list');
+    };
+
+    window.deleteQuestion = function(id) {
+      openModal('問題を削除しますか？', 'この操作は取り消せません。本当に削除しますか？', async () => {
+        if (!currentUser) return;
+        await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'questions', id));
+        showToast('問題を削除しました');
+      });
+    };
+
+    function updateQuestionDropdownsAndList() {
+      document.getElementById('badge-count').textContent = userQuestions.length;
+
+      const categories = [...new Set(userQuestions.map(q => q.category || '一般'))];
+      ['host-category-select', 'solo-category-select'].forEach(selId => {
+        const sel = document.getElementById(selId);
+        const prev = sel.value;
+        sel.innerHTML = `<option value="ALL">すべての問題（${userQuestions.length}問）</option>`;
+        categories.forEach(cat => {
+          const cnt = userQuestions.filter(q => (q.category || '一般') === cat).length;
+          const opt = document.createElement('option');
+          opt.value = cat;
+          opt.textContent = `${cat}（${cnt}問）`;
+          sel.appendChild(opt);
+        });
+        if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+      });
+
+      const container = document.getElementById('questions-list-container');
+      if (userQuestions.length === 0) {
+        container.innerHTML = `
+          <div class="col-span-full text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
+            <p class="text-slate-500 font-bold mb-3">登録されている問題がありません</p>
+            <button onclick="switchTab('create')" class="px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold">
+              最初の問題を作成する
+            </button>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = userQuestions.map(q => {
+        const kwHtml = (q.keywords || []).length > 0
+          ? `<div class="flex flex-wrap gap-1 mt-2">${q.keywords.map(k => `<span class="text-[11px] font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-md">#${escapeHtml(k)}</span>`).join('')}</div>`
+          : '';
+        const imgTag = q.image
+          ? `<span class="text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md"><i class="fa-regular fa-image mr-1"></i>画像あり</span>`
+          : '';
+
+        return `
+          <div class="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-200 flex flex-col justify-between gap-3">
+            <div>
+              <div class="flex items-center justify-between gap-2 mb-2">
+                <span class="bg-white border border-slate-200 text-slate-700 text-xs font-bold px-2.5 py-1 rounded-lg">${escapeHtml(q.category || '一般')}</span>
+                ${imgTag}
+              </div>
+              <p class="font-bold text-slate-900 text-sm sm:text-base line-clamp-3 whitespace-pre-wrap">${escapeHtml(q.question)}</p>
+              ${kwHtml}
+              <div class="mt-3 pt-2.5 border-t border-slate-200/80">
+                <p class="text-xs font-bold text-emerald-700 line-clamp-2"><span class="text-slate-400">模範解答：</span>${escapeHtml(q.answer)}</p>
+              </div>
+            </div>
+            <div class="flex items-center justify-end gap-2 pt-2">
+              <button onclick="editQuestion('${q.id}')" class="px-3.5 py-2 rounded-xl bg-white hover:bg-blue-50 text-blue-600 border border-slate-200 text-xs font-bold transition">
+                <i class="fa-solid fa-pen mr-1"></i>編集
+              </button>
+              <button onclick="deleteQuestion('${q.id}')" class="px-3.5 py-2 rounded-xl bg-white hover:bg-rose-50 text-rose-600 border border-slate-200 text-xs font-bold transition">
+                <i class="fa-solid fa-trash mr-1"></i>削除
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    window.exportQuestionsJSON = function() {
+      if (userQuestions.length === 0) {
+        showToast('エクスポートする問題がありません', 'error');
+        return;
+      }
+      const blob = new Blob([JSON.stringify(userQuestions, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `q_output_questions_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('JSONファイルをダウンロードしました');
+    };
+
+    window.importQuestionsJSON = function(e) {
+      const file = e.target.files[0];
+      if (!file || !currentUser) return;
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        try {
+          const arr = JSON.parse(ev.target.result);
+          if (!Array.isArray(arr)) throw new Error('Invalid');
+          let count = 0;
+          for (const item of arr) {
+            if (item.question && item.answer) {
+              const id = 'imp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+              await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'questions', id), {
+                id,
+                category: item.category || 'インポート',
+                keywords: Array.isArray(item.keywords) ? item.keywords : [],
+                question: String(item.question),
+                image: item.image || '',
+                answer: String(item.answer),
+                rubric: item.rubric || '',
+                createdAt: Date.now()
+              });
+              count++;
+            }
+          }
+          showToast(`${count}問の問題をインポートしました！`);
+        } catch (err) {
+          showToast('JSONの読み込みに失敗しました', 'error');
+        }
+        e.target.value = '';
+      };
+      reader.readAsText(file);
+    };
+
+    window.confirmAddSamples = function() {
+      openModal('サンプル問題を追加しますか？', 'AI採点対応のサンプル問題（3問）を追加します。', async () => {
+        if (!currentUser) return;
+        for (const sq of SAMPLE_QUESTIONS) {
+          const id = 'sample-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5);
+          await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'questions', id), {
+            ...sq,
+            id,
+            createdAt: Date.now()
+          });
+        }
+        showToast('サンプル問題を追加しました！');
+      });
+    };
+
+    /**
+     * =========================================================================
+     * 10. タブナビゲーション・効果音・モーダル・ユーティリティ
+     * =========================================================================
+     */
+    window.switchTab = function(tabName) {
+      executeSwitchTab(tabName);
+    };
+
+    function executeSwitchTab(tabName) {
+      ['play', 'friends', 'create', 'list'].forEach(t => {
+        document.getElementById(`view-${t}`).classList.add('hidden');
+        const btn = document.getElementById(`nav-${t}`);
+        btn.className = 'flex-1 lg:flex-initial px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition-all text-slate-600 hover:text-slate-900 relative';
+      });
+      document.getElementById(`view-${tabName}`).classList.remove('hidden');
+      const active = document.getElementById(`nav-${tabName}`);
+      active.className = 'flex-1 lg:flex-initial px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition-all bg-blue-600 text-white shadow-xs relative';
+    }
+
+    // Web Audio API 効果音
+    let soundEnabled = true;
+    let audioCtx = null;
+
+    function getAudioContext() {
+      if (!audioCtx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AC();
+      }
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      return audioCtx;
+    }
+
+    window.toggleSound = function() {
+      soundEnabled = !soundEnabled;
+      document.getElementById('sound-icon').className = soundEnabled
+        ? 'fa-solid fa-volume-high text-blue-600'
+        : 'fa-solid fa-volume-xmark text-slate-400';
+      if (soundEnabled) playTone(880, 0.08, 'sine');
+    };
+
+    function playTone(freq, duration, type = 'sine', delay = 0) {
+      if (!soundEnabled) return;
+      try {
+        const ctx = getAudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + delay);
+        gain.gain.setValueAtTime(0.22, ctx.currentTime + delay);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + delay);
+        osc.stop(ctx.currentTime + delay + duration);
+      } catch (e) {}
+    }
+
+    function playBuzzerSound() {
+      playTone(987.77, 0.18, 'triangle', 0);
+      playTone(1318.51, 0.45, 'triangle', 0.12);
+    }
+    function playCorrectSound() {
+      playTone(523.25, 0.12, 'sine', 0);
+      playTone(659.25, 0.12, 'sine', 0.1);
+      playTone(783.99, 0.12, 'sine', 0.2);
+      playTone(1046.50, 0.35, 'sine', 0.3);
+    }
+    function playWrongSound() {
+      playTone(220, 0.2, 'sawtooth', 0);
+      playTone(185, 0.35, 'sawtooth', 0.18);
+    }
+
+    let toastTimer = null;
+    function showToast(msg, type = 'success') {
+      const toast = document.getElementById('toast');
+      document.getElementById('toast-message').textContent = msg;
+      document.getElementById('toast-icon').className = type === 'error'
+        ? 'fa-solid fa-circle-exclamation text-rose-400'
+        : 'fa-solid fa-circle-check text-emerald-400';
+      toast.classList.remove('opacity-0', 'translate-y-4');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-4');
+      }, 2800);
+    }
+
+    function openModal(title, desc, onConfirm) {
+      document.getElementById('modal-title').textContent = title;
+      document.getElementById('modal-desc').textContent = desc;
+      document.getElementById('modal-confirm-btn').onclick = () => {
+        closeModal();
+        onConfirm();
+      };
+      document.getElementById('custom-modal').classList.remove('hidden');
+    }
+
+    window.closeModal = function() {
+      document.getElementById('custom-modal').classList.add('hidden');
+    };
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // 初期化実行
+    window.addEventListener('DOMContentLoaded', () => {
+      randomizeHostPasswordInput();
+      setupDragAndDrop();
+      setupCanvasEvents();
+      initFirebaseAndAuth();
+    });
+  </script>
+</body>
+</html>
